@@ -119,6 +119,64 @@ __global__ void collideGridKernel(const float2* d_pos, const float2* d_vel,
     d_partner[i] = partner;
 }
 
+// Un bloc par cellule. Les particules de la cellule sont traitées par paquets
+// de blockDim.x (un thread chacune). Pour chaque cellule voisine, le bloc charge
+// ses particules en mémoire partagée par tuiles de blockDim.x : chaque thread en
+// charge une, puis tous comparent leur particule à la tuile entière.
+__global__ void collideTiledKernel(const float2* d_pos, const float2* d_vel,
+                                   const int* d_cellStart, const int* d_cellEnd,
+                                   float2* d_posOut, int* d_partner)
+{
+    __shared__ float2 s_pos[kTileSize];
+    __shared__ float2 s_vel[kTileSize];
+
+    // Cellule vide : tout le bloc s'arrête ensemble.
+    const int cell = blockIdx.x;
+    const int start = d_cellStart[cell];
+    if (start < 0)
+    {
+        return;
+    }
+    const int end = d_cellEnd[cell];
+    const int cx = cell % kGridWidth;
+    const int cy = cell / kGridWidth;
+
+    for (int base = start; base < end; base += blockDim.x)
+    {
+        // Garde de bornes : un thread sans particule ne quitte pas le kernel, il
+        // participera aux chargements et aux barrières sans rien calculer.
+        const int i = base + threadIdx.x;
+        const bool active = i < end;
+        const float2 p = active ? d_pos[i] : make_float2(0.0f, 0.0f);
+        const float2 v = active ? d_vel[i] : make_float2(0.0f, 0.0f);
+        float2 dp = { 0.0f, 0.0f };
+        int partner = -1;
+        float partnerDist = 2.0f * kRadius;
+
+        for (int ny = max(cy - 1, 0); ny <= min(cy + 1, kGridHeight - 1); ++ny)
+        {
+            for (int nx = max(cx - 1, 0); nx <= min(cx + 1, kGridWidth - 1); ++nx)
+            {
+                const int neighbor = ny * kGridWidth + nx;
+                const int neighborStart = d_cellStart[neighbor];
+                if (neighborStart < 0)
+                {
+                    continue;
+                }
+                const int neighborEnd = d_cellEnd[neighbor];
+
+                // ___TODO___ : parcourir les particules de la cellule voisine par tuiles de blockDim.x : chaque thread charge une particule de la tuile (s'il en reste) dans s_pos et s_vel, barrière, puis les threads actifs appellent accumulateContact pour chaque particule de la tuile autre que la leur, barrière avant la tuile suivante
+            }
+        }
+
+        if (active)
+        {
+            d_posOut[i] = make_float2(p.x + dp.x, p.y + dp.y);
+            d_partner[i] = partner;
+        }
+    }
+}
+
 void SpatialGrid::init(int count)
 {
     CUDA_CHECK(cudaMalloc(&d_cellId, count * sizeof(int)));
@@ -158,6 +216,13 @@ void SpatialGrid::build(DeviceParticles& particles, DeviceParticles& scratch, in
     // Toutes les cellules vides (octets 0xFF : -1), puis plages des cellules occupées.
     CUDA_CHECK(cudaMemset(d_cellStart, 0xFF, kCellCount * sizeof(int)));
     findCellRangesKernel<<<gridSize, kBlockSize>>>(d_cellId, d_cellStart, d_cellEnd, count);
+    CUDA_CHECK_LAUNCH();
+}
+
+void SpatialGrid::collideTiled(const DeviceParticles& particles, float2* d_posOut, int* d_partner)
+{
+    collideTiledKernel<<<kCellCount, kTileSize>>>(
+        particles.d_pos, particles.d_vel, d_cellStart, d_cellEnd, d_posOut, d_partner);
     CUDA_CHECK_LAUNCH();
 }
 

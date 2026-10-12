@@ -110,6 +110,35 @@ __global__ void collideAllPairsKernel(const float2* d_pos, const float2* d_vel,
     d_partner[i] = partner;
 }
 
+// Collisions, toutes les paires, par tuiles. Un thread par particule, comme
+// ci-dessus ; mais au lieu de relire toutes les autres en mémoire globale, le
+// bloc les charge par tuiles de blockDim.x en mémoire partagée : chaque thread
+// en charge une, puis tous comparent leur particule à la tuile entière.
+__global__ void collideAllPairsTiledKernel(const float2* d_pos, const float2* d_vel,
+                                           float2* d_posOut, int* d_partner, int n)
+{
+    __shared__ float2 s_pos[kBlockSize];
+    __shared__ float2 s_vel[kBlockSize];
+
+    // Garde de bornes : un thread sans particule ne quitte pas le kernel, il
+    // participera aux chargements et aux barrières sans rien calculer.
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    const bool active = i < n;
+    const float2 p = active ? d_pos[i] : make_float2(0.0f, 0.0f);
+    const float2 v = active ? d_vel[i] : make_float2(0.0f, 0.0f);
+    float2 dp = { 0.0f, 0.0f };
+    int partner = -1;
+    float partnerDist = 2.0f * kRadius;
+
+    // ___TODO___ : parcourir toutes les particules par tuiles de blockDim.x : chaque thread charge une particule de la tuile (s'il en reste) dans s_pos et s_vel, barrière, puis les threads actifs appellent accumulateContact pour chaque particule de la tuile autre que la leur, barrière avant la tuile suivante
+
+    if (active)
+    {
+        d_posOut[i] = make_float2(p.x + dp.x, p.y + dp.y);
+        d_partner[i] = partner;
+    }
+}
+
 // Échange des composantes normales de vitesse entre partenaires mutuels (i a
 // choisi j et j a choisi i). Chaque particule échange avec une seule autre :
 // l'énergie et la quantité de mouvement sont conservées. Les contacts non
@@ -145,7 +174,26 @@ __global__ void kineticEnergyBlockSumKernel(const float2* d_vel, float* d_blockS
     const int tid = threadIdx.x;
     const int i = blockIdx.x * blockDim.x + tid;
 
-    // ___TODO___ : ranger dans s_sum[tid] l'énergie cinétique de la particule i (0 au-delà du tableau), attendre tout le bloc, puis additionner par moitiés successives (barrière après chaque étape) ; le thread 0 écrit enfin le total du bloc dans d_blockSums
+    // Tous les threads écrivent leur case, même au-delà du tableau (avec 0) :
+    // ainsi tous atteignent les barrières.
+    const float2 v = i < n ? d_vel[i] : make_float2(0.0f, 0.0f);
+    s_sum[tid] = 0.5f * (v.x * v.x + v.y * v.y);
+    __syncthreads();
+
+    // À chaque étape, la première moitié des cases reçoit la seconde.
+    for (int stride = blockDim.x / 2; stride > 0; stride /= 2)
+    {
+        if (tid < stride)
+        {
+            s_sum[tid] += s_sum[tid + stride];
+        }
+        __syncthreads();
+    }
+
+    if (tid == 0)
+    {
+        d_blockSums[blockIdx.x] = s_sum[0];
+    }
 }
 
 // Somme finale des totaux de blocs, par un seul bloc : chaque thread cumule
@@ -155,7 +203,27 @@ __global__ void sumKernel(const float* d_values, float* d_total, int n)
     __shared__ float s_sum[kBlockSize];
     const int tid = threadIdx.x;
 
-    // ___TODO___ : cumuler dans s_sum[tid] les valeurs d'indices tid, tid + blockDim.x, tid + 2 × blockDim.x… ; puis même réduction en mémoire partagée que ci-dessus ; le thread 0 écrit le total dans d_total
+    float sum = 0.0f;
+    for (int k = tid; k < n; k += blockDim.x)
+    {
+        sum += d_values[k];
+    }
+    s_sum[tid] = sum;
+    __syncthreads();
+
+    for (int stride = blockDim.x / 2; stride > 0; stride /= 2)
+    {
+        if (tid < stride)
+        {
+            s_sum[tid] += s_sum[tid + stride];
+        }
+        __syncthreads();
+    }
+
+    if (tid == 0)
+    {
+        *d_total = s_sum[0];
+    }
 }
 
 void SimGpu::init(const Particles& state)
@@ -200,6 +268,13 @@ void SimGpu::step(const StepParams& params)
                 m_device.d_pos, m_device.d_vel, m_deviceOut.d_pos, d_partner, m_count);
             CUDA_CHECK_LAUNCH();
         }
+        else if (params.collisionMode == CollisionMode::DirectTiled)
+        {
+            m_collideTimer.start();
+            collideAllPairsTiledKernel<<<gridSize, kBlockSize>>>(
+                m_device.d_pos, m_device.d_vel, m_deviceOut.d_pos, d_partner, m_count);
+            CUDA_CHECK_LAUNCH();
+        }
         else
         {
             // Tri par cellule : l'ordre des particules change à chaque pas.
@@ -208,7 +283,14 @@ void SimGpu::step(const StepParams& params)
             m_gridTimer.stop();
 
             m_collideTimer.start();
-            m_grid.collide(m_device, m_deviceOut.d_pos, d_partner, m_count);
+            if (params.collisionMode == CollisionMode::GridTiled)
+            {
+                m_grid.collideTiled(m_device, m_deviceOut.d_pos, d_partner);
+            }
+            else
+            {
+                m_grid.collide(m_device, m_deviceOut.d_pos, d_partner, m_count);
+            }
         }
         exchangeVelocitiesKernel<<<gridSize, kBlockSize>>>(
             m_device.d_pos, m_device.d_vel, d_partner, m_deviceOut.d_vel, m_count);
@@ -229,7 +311,8 @@ void SimGpu::step(const StepParams& params)
     m_copyTimer.start();
     CUDA_CHECK(cudaMemcpy(m_positions.data(), m_device.d_pos, m_count * sizeof(float2), cudaMemcpyDeviceToHost));
     // Cellules, pour la coloration : valables seulement si la grille vient d'être construite.
-    m_hasCellIds = params.needCellIds && params.collisions && params.collisionMode != CollisionMode::Direct;
+    const bool gridBuilt = params.collisionMode == CollisionMode::Grid || params.collisionMode == CollisionMode::GridTiled;
+    m_hasCellIds = params.needCellIds && params.collisions && gridBuilt;
     if (m_hasCellIds)
     {
         CUDA_CHECK(cudaMemcpy(m_cellIds.data(), m_grid.cellIds(), m_count * sizeof(int), cudaMemcpyDeviceToHost));

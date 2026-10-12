@@ -25,8 +25,10 @@ struct MouseForce
 // Recherche des collisions sur la carte.
 enum class CollisionMode
 {
-    Direct,     // toutes les paires
-    Grid        // voisinage 3 × 3 d'une grille spatiale
+    Direct,         // toutes les paires
+    DirectTiled,    // toutes les paires, chargées par tuiles en mémoire partagée
+    Grid,           // voisinage 3 × 3 d'une grille spatiale
+    GridTiled       // même voisinage, un bloc par cellule, voisines chargées en mémoire partagée
 };
 
 // Réglages d'un pas de simulation, fournis à chaque image.

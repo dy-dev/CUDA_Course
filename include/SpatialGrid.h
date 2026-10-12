@@ -21,6 +21,10 @@ public:
     // toutes paires : position séparée et partenaire d'échange de vitesse.
     void collide(const DeviceParticles& particles, float2* d_posOut, int* d_partner, int count);
 
+    // Même résultat, un bloc par cellule : les particules des cellules voisines sont
+    // chargées par tuiles en mémoire partagée, puis comparées à celles de la cellule.
+    void collideTiled(const DeviceParticles& particles, float2* d_posOut, int* d_partner);
+
     // Cellule de chaque particule, dans l'ordre trié (valide après build).
     const int* cellIds() const
     {

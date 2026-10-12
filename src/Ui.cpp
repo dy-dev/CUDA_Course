@@ -28,7 +28,7 @@
 namespace
 {
     constexpr float kMargin = 12.0f;
-    constexpr float kRowHeight = 24.0f;
+    constexpr float kRowHeight = 22.0f;
     constexpr float kLabelHeight = 18.0f;
     constexpr float kRowGap = 4.0f;
     constexpr int kTextSize = 16;
@@ -53,7 +53,7 @@ namespace
         void section(const char* title)
         {
             y += kRowGap;
-            GuiLine(row(16.0f), title);
+            GuiLine(row(14.0f), title);
         }
 
         void label(const char* text)
@@ -97,6 +97,30 @@ namespace
             const float padding = float(GuiGetStyle(TOGGLE, GROUP_PADDING));
             bounds.width = (bounds.width - padding * float(count - 1)) / float(count);
             GuiToggleGroup(bounds, items, active);
+        }
+
+        // Groupe de boutons exclusifs sur deux lignes de deux ("A;B\nC;D"), en petit texte.
+        void toggleGrid(const char* items, int* active)
+        {
+            const float padding = float(GuiGetStyle(TOGGLE, GROUP_PADDING));
+            Rectangle bounds = row(2.0f * kRowHeight + padding);
+            bounds.width = (bounds.width - padding) / 2.0f;
+            bounds.height = kRowHeight;
+
+            const int textSize = GuiGetStyle(DEFAULT, TEXT_SIZE);
+            GuiSetStyle(DEFAULT, TEXT_SIZE, 10);
+            GuiToggleGroup(bounds, items, active);
+            GuiSetStyle(DEFAULT, TEXT_SIZE, textSize);
+        }
+
+        // Libellé dans la moitié gauche, curseur dans la moitié droite.
+        void labeledSlider(const char* text, float* value, float minValue, float maxValue)
+        {
+            Rectangle bounds = row(kLabelHeight);
+            bounds.width /= 2.0f;
+            GuiLabel(bounds, text);
+            bounds.x += bounds.width;
+            GuiSlider(bounds, nullptr, nullptr, value, minValue, maxValue);
         }
     };
 
@@ -153,27 +177,20 @@ namespace
     {
         col.section("Physique");
         col.checkBoxPair("Murs", &ui.walls, "Collisions", &ui.collisions);
-        // Restitution : libellé dans la moitié gauche, curseur dans la moitié droite.
-        Rectangle restitution = col.row(kLabelHeight);
-        restitution.width /= 2.0f;
-        GuiLabel(restitution, TextFormat("Restit. %.2f", ui.restitution));
-        restitution.x += restitution.width;
-        GuiSlider(restitution, nullptr, nullptr, &ui.restitution, kMinRestitution, 1.0f);
+        col.labeledSlider(TextFormat("Restit. %.2f", ui.restitution), &ui.restitution, kMinRestitution, 1.0f);
         if (stats.cpuCollisionsSkipped)
         {
             col.label(TextFormat("CPU : aucune au-delà de %dk", kCpuCollisionLimit / 1000));
         }
-        col.toggleGroup("Directes;Grille", 2, &ui.collisionMode);
+        col.toggleGrid("Directes;Directes tuilées\nGrille;Tuiles par cellule", &ui.collisionMode);
         col.checkBox("Colorer par cellule (C)", &ui.colorByCell);
     }
 
     void drawMouseControls(Column& col, UiState& ui)
     {
         col.section("Souris : clic, appui long");
-        col.label(TextFormat("Explosion : %.0f px/s", ui.explosion));
-        GuiSlider(col.row(16.0f), nullptr, nullptr, &ui.explosion, 0.0f, kMaxExplosion);
-        col.label(TextFormat("Attraction : %.0f px/s²", ui.attraction));
-        GuiSlider(col.row(16.0f), nullptr, nullptr, &ui.attraction, 0.0f, kMaxAttraction);
+        col.labeledSlider(TextFormat("Explo. %.0f", ui.explosion), &ui.explosion, 0.0f, kMaxExplosion);
+        col.labeledSlider(TextFormat("Attract. %.0f", ui.attraction), &ui.attraction, 0.0f, kMaxAttraction);
     }
 
     const char* formatMs(float ms)
@@ -202,15 +219,23 @@ namespace
         col.pair(TextFormat("%s %s", stats.engine, formatMs(stats.stepMs)),
                  TextFormat("%s %s", stats.otherEngine, formatMs(stats.otherStepMs)));
         col.label(formatFactor(stats));
-        if (stats.directCollideMs > 0.0f && stats.gridCollideMs > 0.0f)
+        // Facteurs par rapport aux collisions directes, au même N.
+        const bool hasDirect = stats.directCollideMs > 0.0f;
+        col.pair(hasDirect && stats.directTiledCollideMs > 0.0f
+                     ? TextFormat("Tuilées %.1fx", speedup(stats.directCollideMs, stats.directTiledCollideMs))
+                     : "Tuilées -",
+                 hasDirect && stats.gridCollideMs > 0.0f
+                     ? TextFormat("Grille %.1fx", speedup(stats.directCollideMs, stats.gridCollideMs))
+                     : "Grille -");
+
+        if (stats.gridOnlyMs > 0.0f && stats.tiledOnlyMs > 0.0f)
         {
-            col.label(TextFormat("Grille : collisions %.1fx", speedup(stats.directCollideMs, stats.gridCollideMs)));
+            col.label(TextFormat("Cellule %.2f / grille %.2f", stats.tiledOnlyMs, stats.gridOnlyMs));
         }
         else
         {
-            col.label("Grille : -");
+            col.label("Cellule (T) : -");
         }
-
         col.label(TextFormat("Ec moyenne %.3f (V)", stats.energy));
         if (stats.controlEnergy >= 0.0f)
         {

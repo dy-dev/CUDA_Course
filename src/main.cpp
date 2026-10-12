@@ -96,6 +96,10 @@ namespace
         {
             ui.colorByCell = !ui.colorByCell;
         }
+        if (IsKeyPressed(KEY_T))
+        {
+            ui.collisionMode = ui.collisionMode == 3 ? 2 : 3;
+        }
         if (IsKeyPressed(KEY_V))
         {
             ui.verifyRequested = true;
@@ -250,6 +254,9 @@ int main()
     double controlUntil = 0.0;
     float directCollideMs = -1.0f;
     float gridCollideMs = -1.0f;
+    float directTiledCollideMs = -1.0f;
+    float gridOnlyMs = -1.0f;
+    float tiledOnlyMs = -1.0f;
 
     FrameHistory history;
     FrameRecord current;
@@ -296,7 +303,7 @@ int main()
                 }
             }
             lastStepMs[0] = lastStepMs[1] = -1.0f;
-            directCollideMs = gridCollideMs = -1.0f;
+            directCollideMs = directTiledCollideMs = gridCollideMs = gridOnlyMs = tiledOnlyMs = -1.0f;
             ui.resetRequested = false;
         }
 
@@ -313,7 +320,8 @@ int main()
         params.restitution = ui.restitution;
         params.collisions = ui.collisions;
         params.mouse = readMouse(mouseTracker, ui);
-        params.collisionMode = ui.collisionMode == 1 ? CollisionMode::Grid : CollisionMode::Direct;
+        const CollisionMode modes[4] = { CollisionMode::Direct, CollisionMode::DirectTiled, CollisionMode::Grid, CollisionMode::GridTiled };
+        params.collisionMode = modes[ui.collisionMode];
         params.needCellIds = ui.colorByCell;
         CpuTimer stepTimer;
         sim.step(params);
@@ -328,9 +336,16 @@ int main()
             {
                 directCollideMs = current.step.collideMs;
             }
+            else if (params.collisionMode == CollisionMode::DirectTiled)
+            {
+                directTiledCollideMs = current.step.collideMs;
+            }
             else
             {
                 gridCollideMs = current.step.gridMs + current.step.collideMs;
+                // Construction de la grille identique : seule la recherche des voisines diffère.
+                float& onlyMs = params.collisionMode == CollisionMode::Grid ? gridOnlyMs : tiledOnlyMs;
+                onlyMs = current.step.collideMs;
             }
         }
 
@@ -351,6 +366,9 @@ int main()
         }
         stats.controlEnergy = GetTime() < controlUntil ? controlEnergy : -1.0f;
         stats.directCollideMs = directCollideMs;
+        stats.directTiledCollideMs = directTiledCollideMs;
+        stats.gridOnlyMs = gridOnlyMs;
+        stats.tiledOnlyMs = tiledOnlyMs;
         stats.gridCollideMs = gridCollideMs;
         stats.history = &history;
         stats.message = GetTime() < messageUntil ? message : nullptr;

@@ -43,3 +43,6 @@ constexpr int kCellCount = kGridWidth * kGridHeight;
 
 // Threads par bloc pour les kernels de la simulation.
 constexpr int kBlockSize = 256;
+
+// Collisions par tuiles : un bloc par cellule, tuiles de kTileSize particules en mémoire partagée.
+constexpr int kTileSize = 32;

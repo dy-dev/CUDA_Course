@@ -80,7 +80,8 @@ Lancer `bench_cpu` puis `bench_gpu` depuis le même dossier : le second relit le
 | Bascule CPU / GPU, touche `G` | Change de moteur de calcul en cours de simulation (l'état des particules est transmis) |
 | Cases « Murs », « Collisions » | Rebond sur les bords, collisions entre particules |
 | Curseur « Restitution » | Part de la vitesse conservée au rebond sur un mur, de 0,5 à 1 (1 : rebond sans perte) |
-| « Collisions sur la carte » : Directes / Grille | Toutes les paires, ou voisinage 3 × 3 d'une grille spatiale (moteur GPU) |
+| Directes / Directes tuilées / Grille / Tuiles par cellule | Collisions sur la carte : toutes les paires ; toutes les paires chargées par tuiles en mémoire partagée ; voisinage 3 × 3 d'une grille spatiale ; même voisinage, un bloc par cellule, voisines chargées par tuiles |
+| Touche `T` | Bascule grille / tuiles par cellule ; le panneau compare les deux temps de recherche des voisines, et donne le facteur des modes tuilé et grille par rapport aux collisions directes |
 | Case « Colorer par cellule », touche `C` | Couleur selon la cellule de la grille (moteur GPU, mode grille) |
 | Touche `V` | Recalcule sur le processeur l'énergie cinétique moyenne affichée, pour contrôle |
 | Clic bref dans le monde | Explosion : impulsion répulsive autour du curseur |
