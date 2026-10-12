@@ -1,6 +1,7 @@
 #include "SimCpu.h"
 
 #include "Physics.h"
+#include "Timing.h"
 
 namespace
 {
@@ -53,20 +54,28 @@ void SimCpu::init(const Particles& state)
 
 void SimCpu::step(const StepParams& params)
 {
+    m_timings = StepTimings();
+    CpuTimer timer;
+
     const int n = m_particles.count();
     if (params.mouse.mode != MouseMode::None)
     {
+        timer.start();
         for (int i = 0; i < n; ++i)
         {
             applyMouseForce(m_particles.pos[i], m_particles.vel[i], params.mouse, params.dt);
         }
+        m_timings.mouseMs = timer.elapsedMs();
     }
     if (params.collisions && n <= kCpuCollisionLimit)
     {
+        timer.start();
         collideAllPairs(m_particles);
+        m_timings.collideMs = timer.elapsedMs();
     }
 
     // Déplacement, puis rebond éventuel sur les murs : fonctions partagées avec la carte.
+    timer.start();
     for (int i = 0; i < n; ++i)
     {
         advance(m_particles.pos[i], m_particles.vel[i], params.dt);
@@ -75,6 +84,7 @@ void SimCpu::step(const StepParams& params)
             bounce(m_particles.pos[i], m_particles.vel[i], params.restitution);
         }
     }
+    m_timings.moveMs = timer.elapsedMs();
 }
 
 const std::vector<float2>& SimCpu::positions() const

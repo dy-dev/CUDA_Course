@@ -40,7 +40,8 @@ __global__ void moveParticlesKernel(float2* d_pos, float2* d_vel, int n, float d
     d_vel[i] = v;
 }
 
-// Force exercée par la souris, par la fonction partagée avec le moteur CPU.
+// Force exercée par la souris : explosion (une seule fois), attraction ou tourbillon
+// (continus), par la fonction partagée avec le moteur CPU.
 // Les réglages arrivent par valeur, avec les autres paramètres du lancement.
 __global__ void mouseForceKernel(const float2* d_pos, float2* d_vel, int n, MouseForce mouse, float dt)
 {
@@ -151,48 +152,50 @@ void SimGpu::init(const Particles& state)
     CUDA_CHECK(cudaMemcpy(m_device.d_vel, state.vel.data(), bytes, cudaMemcpyHostToDevice));
     m_positions = state.pos;
 
-    CUDA_CHECK(cudaEventCreate(&m_start));
-    CUDA_CHECK(cudaEventCreate(&m_afterCompute));
-    CUDA_CHECK(cudaEventCreate(&m_afterCopy));
 }
 
 void SimGpu::step(const StepParams& params)
 {
-    CUDA_CHECK(cudaEventRecord(m_start));
+    const int gridSize = gridFor(m_count, kBlockSize);
 
     if (params.mouse.mode != MouseMode::None)
     {
-        mouseForceKernel<<<gridFor(m_count, kBlockSize), kBlockSize>>>(
-            m_device.d_pos, m_device.d_vel, m_count, params.mouse, params.dt);
+        m_mouseTimer.start();
+        mouseForceKernel<<<gridSize, kBlockSize>>>(m_device.d_pos, m_device.d_vel, m_count, params.mouse, params.dt);
         CUDA_CHECK_LAUNCH();
+        m_mouseTimer.stop();
     }
 
     if (params.collisions)
     {
-        const int gridSize = gridFor(m_count, kBlockSize);
+        m_collideTimer.start();
         collideAllPairsKernel<<<gridSize, kBlockSize>>>(
             m_device.d_pos, m_device.d_vel, m_deviceOut.d_pos, d_partner, m_count);
         CUDA_CHECK_LAUNCH();
         exchangeVelocitiesKernel<<<gridSize, kBlockSize>>>(
             m_device.d_pos, m_device.d_vel, d_partner, m_deviceOut.d_vel, m_count);
         CUDA_CHECK_LAUNCH();
+        m_collideTimer.stop();
         // Le résultat devient l'état courant ; l'ancien état servira de sortie au pas suivant.
         std::swap(m_device, m_deviceOut);
     }
 
-    const int blockSize = kDemoBadLaunch ? 2048 : kBlockSize;
-    moveParticlesKernel<<<gridFor(m_count, blockSize), blockSize>>>(
+    m_moveTimer.start();
+    const int moveBlockSize = kDemoBadLaunch ? 2048 : kBlockSize;
+    moveParticlesKernel<<<gridFor(m_count, moveBlockSize), moveBlockSize>>>(
         m_device.d_pos, m_device.d_vel, m_count, params.dt, params.walls, params.restitution);
     CUDA_CHECK_LAUNCH();
-    CUDA_CHECK(cudaEventRecord(m_afterCompute));
+    m_moveTimer.stop();
 
     // Copie retour des seules positions, pour le dessin.
+    m_copyTimer.start();
     CUDA_CHECK(cudaMemcpy(m_positions.data(), m_device.d_pos, m_count * sizeof(float2), cudaMemcpyDeviceToHost));
-    CUDA_CHECK(cudaEventRecord(m_afterCopy));
+    m_copyTimer.stop();
 
-    CUDA_CHECK(cudaEventSynchronize(m_afterCopy));
-    CUDA_CHECK(cudaEventElapsedTime(&m_computeMs, m_start, m_afterCompute));
-    CUDA_CHECK(cudaEventElapsedTime(&m_copyMs, m_afterCompute, m_afterCopy));
+    m_timings.mouseMs = m_mouseTimer.elapsedMs();
+    m_timings.collideMs = m_collideTimer.elapsedMs();
+    m_timings.moveMs = m_moveTimer.elapsedMs();
+    m_timings.copyMs = m_copyTimer.elapsedMs();
 }
 
 const std::vector<float2>& SimGpu::positions() const
@@ -226,8 +229,5 @@ void SimGpu::shutdown()
     m_deviceOut = DeviceParticles();
     m_positions.clear();
 
-    CUDA_CHECK(cudaEventDestroy(m_start));
-    CUDA_CHECK(cudaEventDestroy(m_afterCompute));
-    CUDA_CHECK(cudaEventDestroy(m_afterCopy));
     m_count = 0;
 }

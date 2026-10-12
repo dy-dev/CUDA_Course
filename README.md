@@ -82,12 +82,24 @@ Lancer `bench_cpu` puis `bench_gpu` depuis le même dossier : le second relit le
 | Curseur « Restitution » | Part de la vitesse conservée au rebond sur un mur, de 0,5 à 1 (1 : rebond sans perte) |
 | Clic bref dans le monde | Explosion : impulsion répulsive autour du curseur |
 | Bouton maintenu dans le monde | Attraction continue vers le curseur |
-| Curseurs « Explosion », « Attraction » | Intensité des deux effets |
+| Clic droit maintenu dans le monde | Bonus : tourbillon autour du curseur (voir « Bonus : tourbillon ») |
+| Curseurs « Explosion », « Attraction » | Intensité des effets ; « Attraction » règle aussi le tourbillon |
+| Bouton « Exporter CSV », touche `M` | Écrit la durée des 120 dernières images, étape par étape, dans `frame_times.csv` |
 | `Échap` | Quitter |
 
 Sur la carte, chaque particule choisit pour l'échange de vitesse sa voisine la plus proche parmi celles qui s'en rapprochent ; l'échange n'a lieu qu'entre partenaires mutuels. Les échanges se font ainsi par paires disjointes : l'énergie et la quantité de mouvement sont conservées, comme dans la boucle séquentielle du processeur.
 
 Le moteur CPU calcule les collisions entre toutes les paires : au-delà de 50 000 particules, un pas durerait plusieurs secondes ; il les ignore donc (le panneau le signale).
+
+## Bonus : tourbillon
+
+Clic droit maintenu dans le monde : les particules proches du curseur se mettent à tourner autour de lui (cercle bleu). La force reprend le rayon d'action et l'intensité de l'attraction, décroissance comprise, mais sa direction est perpendiculaire au vecteur particule → curseur au lieu de le suivre : c'est l'accélération de l'attraction tournée d'un quart de tour.
+
+Le mode est le même pour toute la grille : il arrive dans les paramètres du lancement (`MouseForce`), et non d'un calcul propre à chaque thread. La branche qui sépare tourbillon et attraction dépend donc d'une valeur identique dans toute la warp : tous les threads actifs prennent le même chemin, sans divergence. La seule branche divergente du kernel reste celle qui existait déjà, le test de distance au curseur.
+
+En pratique, les particules ne tournent pas en rond : elles spiralent en s'éloignant du curseur. À chaque pas, la vitesse calculée au début du pas est appliquée telle quelle pendant tout le pas : la particule avance en ligne droite le long de la tangente, et une tangente s'écarte toujours du cercle. L'intégration explicite ajoute ainsi un peu de distance à chaque pas, et cette dérive se cumule. La force elle-même n'a d'ailleurs aucune composante dirigée vers le curseur pour retenir les particules sur une orbite.
+
+Obtenir un tourbillon stable reste une question ouverte.
 
 ## Organisation
 
@@ -104,11 +116,12 @@ include/    en-têtes
   SimCpu.h      moteur processeur
   SimGpu.h      moteur carte graphique
   CudaCheck.h   vérification des appels CUDA
+  Timing.h      chronomètres processeur et carte (événements CUDA)
   Ui.h          panneau raygui
 src/        application (C++)
   main.cpp      fenêtre, boucle, entrées
   SimCpu.cpp    moteur processeur
-  Ui.cpp        panneau raygui
+  Ui.cpp        panneau raygui (seul fichier qui compile l'implémentation de raygui)
 cuda/       code CUDA (nvcc)
   SimGpu.cu     moteur carte graphique
 ```

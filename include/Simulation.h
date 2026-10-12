@@ -9,7 +9,8 @@ enum class MouseMode
 {
     None,
     Explode,    // impulsion répulsive, appliquée une fois
-    Attract     // attraction continue vers le curseur
+    Attract,    // attraction continue vers le curseur
+    Swirl       // bonus : tourbillon continu autour du curseur
 };
 
 // Action de la souris sur les particules, en coordonnées du monde.
@@ -17,7 +18,7 @@ struct MouseForce
 {
     MouseMode mode = MouseMode::None;
     float2 pos = { 0.0f, 0.0f };
-    float strength = 0.0f;     // explosion : px/s ; attraction : px/s², au centre
+    float strength = 0.0f;     // explosion : px/s ; attraction, tourbillon : px/s², au centre
     float radius = kMouseRadius;
 };
 
@@ -29,6 +30,15 @@ struct StepParams
     float restitution = kDefaultRestitution;   // murs : part de la vitesse conservée au rebond
     bool collisions = true;    // collisions entre particules
     MouseForce mouse;
+};
+
+// Durées des étapes du dernier pas, en ms (0 : étape non exécutée).
+struct StepTimings
+{
+    float mouseMs = 0.0f;
+    float collideMs = 0.0f;
+    float moveMs = 0.0f;
+    float copyMs = 0.0f;       // copie retour des positions (carte seulement)
 };
 
 // Interface commune aux moteurs de calcul : processeur et carte graphique.
@@ -51,6 +61,9 @@ public:
 
     // Libère les ressources du moteur.
     virtual void shutdown() = 0;
+
+    // Décomposition du dernier pas.
+    virtual const StepTimings& timings() const = 0;
 
     // Nom court affiché dans le panneau.
     virtual const char* name() const = 0;

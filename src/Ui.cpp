@@ -1,6 +1,7 @@
 #include "Ui.h"
 
 #include "Params.h"
+#include "Timing.h"
 
 #include <cmath>
 
@@ -28,8 +29,14 @@ namespace
 {
     constexpr float kMargin = 12.0f;
     constexpr float kRowHeight = 24.0f;
-    constexpr float kRowGap = 6.0f;
+    constexpr float kLabelHeight = 18.0f;
+    constexpr float kRowGap = 4.0f;
     constexpr int kTextSize = 16;
+
+    Color textColor()
+    {
+        return GetColor(GuiGetStyle(DEFAULT, TEXT_COLOR_NORMAL));
+    }
 
     // Empile les contrôles de haut en bas dans la largeur du panneau.
     struct Column
@@ -51,13 +58,23 @@ namespace
 
         void label(const char* text)
         {
-            GuiLabel(row(18.0f), text);
+            GuiLabel(row(kLabelHeight), text);
+        }
+
+        // Deux libellés côte à côte, chacun dans une demi-largeur.
+        void pair(const char* left, const char* right)
+        {
+            Rectangle bounds = row(kLabelHeight);
+            bounds.width /= 2.0f;
+            GuiLabel(bounds, left);
+            bounds.x += bounds.width;
+            GuiLabel(bounds, right);
         }
 
         // Case à cocher carrée, libellé à droite.
         void checkBox(const char* text, bool* checked)
         {
-            Rectangle box = row(18.0f);
+            Rectangle box = row(kLabelHeight);
             box.width = box.height;
             GuiCheckBox(box, text, checked);
         }
@@ -70,7 +87,7 @@ namespace
 
     void drawCountControls(Column& col, UiState& ui)
     {
-        col.section("Particules");
+        col.section("Particules (touches 1 à 5)");
 
         // Curseur : la valeur n'est appliquée qu'au relâchement du bouton.
         float slider = float(ui.pendingCount);
@@ -95,8 +112,6 @@ namespace
         {
             ui.resetRequested = true;
         }
-        col.label("Touches 1 à 5 :");
-        col.label("1k, 10k, 50k, 100k, 200k");
     }
 
     void drawEngineControls(Column& col, UiState& ui)
@@ -122,7 +137,7 @@ namespace
         col.checkBox("Murs", &ui.walls);
         col.checkBox("Collisions", &ui.collisions);
         // Restitution : libellé dans la moitié gauche, curseur dans la moitié droite.
-        Rectangle restitution = col.row(18.0f);
+        Rectangle restitution = col.row(kLabelHeight);
         restitution.width /= 2.0f;
         GuiLabel(restitution, TextFormat("Restit. %.2f", ui.restitution));
         restitution.x += restitution.width;
@@ -136,9 +151,7 @@ namespace
 
     void drawMouseControls(Column& col, UiState& ui)
     {
-        col.section("Souris");
-        col.label("Clic bref : explosion");
-        col.label("Maintenu : attraction");
+        col.section("Souris : clic, appui long");
         col.label(TextFormat("Explosion : %.0f px/s", ui.explosion));
         GuiSlider(col.row(16.0f), nullptr, nullptr, &ui.explosion, 0.0f, kMaxExplosion);
         col.label(TextFormat("Attraction : %.0f px/s²", ui.attraction));
@@ -159,24 +172,65 @@ namespace
         }
         if (stats.stepMs <= stats.otherStepMs)
         {
-            return TextFormat("%s %.1fx plus rapide", stats.engine, stats.otherStepMs / stats.stepMs);
+            return TextFormat("%s %.1fx plus rapide", stats.engine, speedup(stats.otherStepMs, stats.stepMs));
         }
-        return TextFormat("%s %.1fx plus rapide", stats.otherEngine, stats.stepMs / stats.otherStepMs);
+        return TextFormat("%s %.1fx plus rapide", stats.otherEngine, speedup(stats.stepMs, stats.otherStepMs));
     }
 
     void drawStats(Column& col, const UiStats& stats)
     {
         col.section("Mesures");
-        col.label(TextFormat("FPS : %d", stats.fps));
-        col.label(TextFormat("N : %d", stats.count));
+        col.label(TextFormat("FPS %d    N %d", stats.fps, stats.count));
         col.label(TextFormat("Pas %s : %s", stats.engine, formatMs(stats.stepMs)));
         col.label(TextFormat("Pas %s : %s", stats.otherEngine, formatMs(stats.otherStepMs)));
         col.label(formatFactor(stats));
+    }
 
-        if (stats.computeMs >= 0.0f)
+    // Durée des dernières images, avec la limite de 16,7 ms (60 images/s).
+    void drawFrameGraph(Rectangle area, const FrameHistory& history)
+    {
+        constexpr float kMaxMs = 50.0f;
+        const Color line = GetColor(GuiGetStyle(DEFAULT, LINE_COLOR));
+
+        DrawRectangleLinesEx(area, 1.0f, line);
+        const float budgetY = area.y + area.height * (1.0f - (1000.0f / 60.0f) / kMaxMs);
+        DrawLineEx({ area.x, budgetY }, { area.x + area.width, budgetY }, 1.0f, ORANGE);
+
+        const float step = area.width / float(FrameHistory::kCapacity - 1);
+        auto pointAt = [&](int age)
         {
-            col.label(TextFormat("  calcul : %s", formatMs(stats.computeMs)));
-            col.label(TextFormat("  copie retour : %s", formatMs(stats.copyMs)));
+            const float ms = history.at(age).frameMs < kMaxMs ? history.at(age).frameMs : kMaxMs;
+            return Vector2{ area.x + step * float(age), area.y + area.height * (1.0f - ms / kMaxMs) };
+        };
+        for (int age = 1; age < history.size(); ++age)
+        {
+            DrawLineV(pointAt(age - 1), pointAt(age), textColor());
+        }
+    }
+
+    void drawBreakdown(Column& col, UiState& ui, const UiStats& stats)
+    {
+        col.section("Dernière image (ms)");
+        if (stats.history == nullptr || stats.history->size() == 0)
+        {
+            return;
+        }
+
+        const FrameRecord& last = stats.history->at(stats.history->size() - 1);
+        const float restMs = last.frameMs - last.stepMs - last.drawMs;
+        col.pair(TextFormat("souris %.2f", last.step.mouseMs), TextFormat("collis. %.2f", last.step.collideMs));
+        col.pair(TextFormat("déplac. %.2f", last.step.moveMs), TextFormat("copie %.2f", last.step.copyMs));
+        col.pair(TextFormat("dessin %.2f", last.drawMs), TextFormat("reste %.2f", restMs));
+        col.label(TextFormat("image %.2f (pas %.2f)", last.frameMs, last.stepMs));
+
+        drawFrameGraph(col.row(50.0f), *stats.history);
+        if (GuiButton(col.row(), "Exporter CSV (M)"))
+        {
+            ui.exportRequested = true;
+        }
+        if (stats.message != nullptr)
+        {
+            col.label(stats.message);
         }
     }
 }
@@ -197,6 +251,7 @@ void drawPanel(UiState& ui, const UiStats& stats)
     drawPhysicsControls(col, ui, stats);
     drawMouseControls(col, ui);
     drawStats(col, stats);
+    drawBreakdown(col, ui, stats);
 }
 
 void requestCount(UiState& ui, int count)

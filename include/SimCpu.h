@@ -12,6 +12,11 @@ public:
     void readState(Particles& state) override;
     void shutdown() override;
 
+    const StepTimings& timings() const override
+    {
+        return m_timings;
+    }
+
     const char* name() const override
     {
         return "CPU";
@@ -19,4 +24,5 @@ public:
 
 private:
     Particles m_particles;
+    StepTimings m_timings;
 };

@@ -71,10 +71,34 @@ HOST_DEVICE inline bool touching(float2 a, float2 b, float2& normal, float& dist
     return true;
 }
 
-// Action de la souris sur une particule (position p, vitesse v) : explosion,
-// appliquée une fois, ou attraction, continue. Intensité mouse.strength au
-// curseur, nulle à mouse.radius.
+// Action de la souris sur une particule (position p, vitesse v). Explosion :
+// impulsion vers l'extérieur, appliquée une fois. Attraction : accélération
+// vers le curseur. Tourbillon : l'accélération de l'attraction, tournée d'un
+// quart de tour. Intensité mouse.strength au curseur, nulle à mouse.radius.
+// Sur la carte, mouse.mode est un paramètre du lancement, le même pour tous
+// les threads : les threads actifs d'une warp prennent tous la même branche.
 HOST_DEVICE inline void applyMouseForce(float2 p, float2& v, const MouseForce& mouse, float dt)
 {
-    // ___TODO___ : si p est à moins de mouse.radius du curseur, ajouter à v une contribution d'intensité mouse.strength au centre, décroissant jusqu'à zéro au bord ; dirigée à l'opposé du curseur pour une explosion (impulsion), vers le curseur pour une attraction (accélération, multipliée par dt)
+    const float dx = p.x - mouse.pos.x;
+    const float dy = p.y - mouse.pos.y;
+    const float dist2 = dx * dx + dy * dy;
+    if (dist2 >= mouse.radius * mouse.radius || dist2 == 0.0f)
+    {
+        return;
+    }
+
+    const float amount = mouse.mode == MouseMode::Explode ? mouse.strength : -mouse.strength * dt;
+    const float dist = sqrtf(dist2);
+    const float falloff = 1.0f - dist / mouse.radius;
+    const float k = amount * falloff / dist;
+    if (mouse.mode == MouseMode::Swirl)
+    {
+        v.x -= dy * k;
+        v.y += dx * k;
+    }
+    else
+    {
+        v.x += dx * k;
+        v.y += dy * k;
+    }
 }

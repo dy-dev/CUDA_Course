@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Simulation.h"
+
 #include "raylib.h"
 
 // Réglages modifiés par le panneau et relus par la boucle principale.
@@ -14,10 +16,53 @@ struct UiState
     bool collisions = true;        // collisions entre particules
     float explosion = 0.0f;        // intensité d'un clic bref, px/s
     float attraction = 0.0f;       // intensité du bouton maintenu, px/s²
+    bool exportRequested = false;  // écrire l'historique des durées dans un fichier CSV
 
     // État interne des contrôles
     int pendingCount = 0;          // valeur en cours de réglage (curseur ou champ)
     bool countEditing = false;     // champ numérique en cours de saisie
+};
+
+// Durées d'une image, en ms.
+struct FrameRecord
+{
+    float frameMs = 0.0f;          // image complète, attente de la cadence comprise
+    float stepMs = 0.0f;           // pas de simulation, vu du processeur
+    float drawMs = 0.0f;           // préparation du dessin
+    StepTimings step;              // décomposition du pas
+};
+
+// Les dernières images, de la plus ancienne à la plus récente.
+class FrameHistory
+{
+public:
+    static constexpr int kCapacity = 120;
+
+    void push(const FrameRecord& record)
+    {
+        m_records[m_next] = record;
+        m_next = (m_next + 1) % kCapacity;
+        if (m_size < kCapacity)
+        {
+            ++m_size;
+        }
+    }
+
+    int size() const
+    {
+        return m_size;
+    }
+
+    // age 0 : la plus ancienne ; size() - 1 : la plus récente.
+    const FrameRecord& at(int age) const
+    {
+        return m_records[(m_next - m_size + age + kCapacity) % kCapacity];
+    }
+
+private:
+    FrameRecord m_records[kCapacity];
+    int m_next = 0;
+    int m_size = 0;
 };
 
 // Mesures affichées par le panneau. Une durée négative signifie « pas de mesure ».
@@ -29,9 +74,9 @@ struct UiStats
     const char* otherEngine = "";  // l'autre moteur
     float stepMs = -1.0f;          // dernier pas du moteur actif
     float otherStepMs = -1.0f;     // dernière mesure de l'autre moteur
-    float computeMs = -1.0f;       // carte : calcul du dernier pas
-    float copyMs = -1.0f;          // carte : copie retour des positions
     bool cpuCollisionsSkipped = false; // trop de particules pour les collisions sur le processeur
+    const FrameHistory* history = nullptr;
+    const char* message = nullptr; // information ponctuelle (export réussi…)
 };
 
 // Applique le style du panneau (à appeler après InitWindow).
