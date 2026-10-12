@@ -23,6 +23,13 @@ constexpr int kPresetCounts[5] = { 1000, 10000, 50000, 100000, 200000 };
 // Coefficient de restitution des murs : 1, rebond sans perte ; 0,5 au minimum.
 constexpr float kMinRestitution = 0.5f;
 constexpr float kDefaultRestitution = 1.0f;
+// Souris : rayon d'action, intensités par défaut, durée maximale d'un clic simple.
+constexpr float kMouseRadius = 150.0f;
+constexpr float kDefaultExplosion = 400.0f;    // px/s au centre
+constexpr float kDefaultAttraction = 1500.0f;  // px/s² au centre
+constexpr float kMaxExplosion = 1500.0f;
+constexpr float kMaxAttraction = 5000.0f;
+constexpr float kClickMaxSeconds = 0.2f;
 
 // Au-delà, le moteur processeur ignore les collisions : un pas durerait plusieurs secondes.
 constexpr int kCpuCollisionLimit = 50000;

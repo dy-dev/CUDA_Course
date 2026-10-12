@@ -90,6 +90,59 @@ namespace
         to.init(state);
     }
 
+    // Suivi du bouton gauche : un clic bref déclenche une explosion au relâchement,
+    // un bouton maintenu attire les particules. Les clics sur le panneau sont ignorés.
+    struct MouseTracker
+    {
+        bool pressedInWorld = false;
+        double pressTime = 0.0;
+    };
+
+    MouseForce readMouse(MouseTracker& tracker, const UiState& ui)
+    {
+        MouseForce force;
+        const Vector2 screen = GetMousePosition();
+        force.pos = { screen.x - float(kPanelWidth), screen.y };
+
+        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        {
+            tracker.pressedInWorld = !isOverPanel(screen);
+            tracker.pressTime = GetTime();
+        }
+        if (!tracker.pressedInWorld)
+        {
+            return force;
+        }
+
+        const double held = GetTime() - tracker.pressTime;
+        if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
+        {
+            tracker.pressedInWorld = false;
+            if (held < kClickMaxSeconds)
+            {
+                force.mode = MouseMode::Explode;
+                force.strength = ui.explosion;
+            }
+        }
+        else if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) && held >= kClickMaxSeconds)
+        {
+            force.mode = MouseMode::Attract;
+            force.strength = ui.attraction;
+        }
+        return force;
+    }
+
+    void drawMouseForce(const MouseForce& force)
+    {
+        if (force.mode == MouseMode::None)
+        {
+            return;
+        }
+        const Vector2 center = { force.pos.x + float(kPanelWidth), force.pos.y };
+        const Color color = force.mode == MouseMode::Explode ? ORANGE : GREEN;
+        DrawCircleLinesV(center, force.radius, color);
+    }
+
     float elapsedMs(std::chrono::steady_clock::time_point start)
     {
         return std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - start).count();
@@ -106,6 +159,9 @@ int main()
     UiState ui;
     requestCount(ui, kDefaultCount);
     ui.restitution = kDefaultRestitution;
+    ui.explosion = kDefaultExplosion;
+    ui.attraction = kDefaultAttraction;
+    MouseTracker mouseTracker;
 
     // Moteurs : 0 processeur, 1 carte graphique (absent s'il n'est pas construit).
     SimCpu cpu;
@@ -160,6 +216,7 @@ int main()
         params.walls = ui.walls;
         params.restitution = ui.restitution;
         params.collisions = ui.collisions;
+        params.mouse = readMouse(mouseTracker, ui);
         const auto stepStart = std::chrono::steady_clock::now();
         sim.step(params);
         lastStepMs[active] = elapsedMs(stepStart);
@@ -183,6 +240,7 @@ int main()
         BeginDrawing();
         ClearBackground(kBackground);
         drawParticles(sim.positions(), disc);
+        drawMouseForce(params.mouse);
         drawPanel(ui, stats);
         EndDrawing();
     }

@@ -40,6 +40,21 @@ __global__ void moveParticlesKernel(float2* d_pos, float2* d_vel, int n, float d
     d_vel[i] = v;
 }
 
+// Force exercée par la souris, par la fonction partagée avec le moteur CPU.
+// Les réglages arrivent par valeur, avec les autres paramètres du lancement.
+__global__ void mouseForceKernel(const float2* d_pos, float2* d_vel, int n, MouseForce mouse, float dt)
+{
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n)
+    {
+        return;
+    }
+
+    float2 v = d_vel[i];
+    applyMouseForce(d_pos[i], v, mouse, dt);
+    d_vel[i] = v;
+}
+
 // Collisions, toutes les paires. Chaque thread traite une particule et parcourt
 // toutes les autres. Il lit l'état d'entrée et n'écrit que dans les tableaux de
 // sortie (double tampon) : aucun thread n'écrit ce qu'un autre lit.
@@ -54,12 +69,42 @@ __global__ void collideAllPairsKernel(const float2* d_pos, const float2* d_vel,
         return;
     }
 
+    const float minDist = 2.0f * kRadius;
+
     float2 p = d_pos[i];
     const float2 v = d_vel[i];
+
+    // Séparation cumulée sur toutes les voisines, appliquée à la fin : chaque
+    // paire est vue depuis l'état d'entrée, comme par l'autre particule.
+    float2 dp = { 0.0f, 0.0f };
     int partner = -1;
+    float partnerDist = minDist;
+    for (int j = 0; j < n; ++j)
+    {
+        float2 normal;
+        float dist;
+        if (j == i || !touching(p, d_pos[j], normal, dist))
+        {
+            continue;
+        }
 
-    // ___TODO___ : pour chaque autre particule en contact avec celle-ci (fonction partagée touching), cumuler un recul de la moitié du chevauchement le long de la normale de contact, et retenir comme partenaire la plus proche de celles qui se rapprochent ; appliquer le recul cumulé à p après la boucle
+        // Séparation : la particule recule de la moitié du chevauchement.
+        const float half = 0.5f * (minDist - dist);
+        dp.x -= normal.x * half;
+        dp.y -= normal.y * half;
 
+        // Partenaire : la plus proche des voisines qui se rapprochent.
+        const float2 vj = d_vel[j];
+        const float vn = (vj.x - v.x) * normal.x + (vj.y - v.y) * normal.y;
+        if (vn < 0.0f && dist < partnerDist)
+        {
+            partner = j;
+            partnerDist = dist;
+        }
+    }
+
+    p.x += dp.x;
+    p.y += dp.y;
     d_posOut[i] = p;
     d_partner[i] = partner;
 }
@@ -114,6 +159,13 @@ void SimGpu::init(const Particles& state)
 void SimGpu::step(const StepParams& params)
 {
     CUDA_CHECK(cudaEventRecord(m_start));
+
+    if (params.mouse.mode != MouseMode::None)
+    {
+        mouseForceKernel<<<gridFor(m_count, kBlockSize), kBlockSize>>>(
+            m_device.d_pos, m_device.d_vel, m_count, params.mouse, params.dt);
+        CUDA_CHECK_LAUNCH();
+    }
 
     if (params.collisions)
     {

@@ -7,7 +7,42 @@ namespace
     // Collisions entre toutes les paires de particules (masses égales).
     void collideAllPairs(Particles& particles)
     {
-        // ___TODO___ : pour chaque paire en contact (fonction partagée touching), écarter les deux particules de la moitié du chevauchement chacune le long de la normale de contact et, si elles se rapprochent, échanger leurs composantes de vitesse le long de cette normale
+        const float minDist = 2.0f * kRadius;
+
+        const int n = particles.count();
+        for (int i = 0; i < n; ++i)
+        {
+            for (int j = i + 1; j < n; ++j)
+            {
+                float2& pi = particles.pos[i];
+                float2& pj = particles.pos[j];
+                float2 normal;
+                float dist;
+                if (!touching(pi, pj, normal, dist))
+                {
+                    continue;
+                }
+
+                // Séparation : chacune recule de la moitié du chevauchement.
+                const float half = 0.5f * (minDist - dist);
+                pi.x -= normal.x * half;
+                pi.y -= normal.y * half;
+                pj.x += normal.x * half;
+                pj.y += normal.y * half;
+
+                // Si elles se rapprochent, elles échangent leurs composantes normales.
+                float2& vi = particles.vel[i];
+                float2& vj = particles.vel[j];
+                const float vn = (vj.x - vi.x) * normal.x + (vj.y - vi.y) * normal.y;
+                if (vn < 0.0f)
+                {
+                    vi.x += vn * normal.x;
+                    vi.y += vn * normal.y;
+                    vj.x -= vn * normal.x;
+                    vj.y -= vn * normal.y;
+                }
+            }
+        }
     }
 }
 
@@ -18,13 +53,20 @@ void SimCpu::init(const Particles& state)
 
 void SimCpu::step(const StepParams& params)
 {
-    if (params.collisions && m_particles.count() <= kCpuCollisionLimit)
+    const int n = m_particles.count();
+    if (params.mouse.mode != MouseMode::None)
+    {
+        for (int i = 0; i < n; ++i)
+        {
+            applyMouseForce(m_particles.pos[i], m_particles.vel[i], params.mouse, params.dt);
+        }
+    }
+    if (params.collisions && n <= kCpuCollisionLimit)
     {
         collideAllPairs(m_particles);
     }
 
     // Déplacement, puis rebond éventuel sur les murs : fonctions partagées avec la carte.
-    const int n = m_particles.count();
     for (int i = 0; i < n; ++i)
     {
         advance(m_particles.pos[i], m_particles.vel[i], params.dt);

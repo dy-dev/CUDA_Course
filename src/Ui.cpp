@@ -134,6 +134,17 @@ namespace
         }
     }
 
+    void drawMouseControls(Column& col, UiState& ui)
+    {
+        col.section("Souris");
+        col.label("Clic bref : explosion");
+        col.label("Maintenu : attraction");
+        col.label(TextFormat("Explosion : %.0f px/s", ui.explosion));
+        GuiSlider(col.row(16.0f), nullptr, nullptr, &ui.explosion, 0.0f, kMaxExplosion);
+        col.label(TextFormat("Attraction : %.0f px/s²", ui.attraction));
+        GuiSlider(col.row(16.0f), nullptr, nullptr, &ui.attraction, 0.0f, kMaxAttraction);
+    }
+
     const char* formatMs(float ms)
     {
         return ms < 0.0f ? "-" : TextFormat("%.3f ms", ms);
@@ -184,6 +195,7 @@ void drawPanel(UiState& ui, const UiStats& stats)
     drawCountControls(col, ui);
     drawEngineControls(col, ui);
     drawPhysicsControls(col, ui, stats);
+    drawMouseControls(col, ui);
     drawStats(col, stats);
 }
 

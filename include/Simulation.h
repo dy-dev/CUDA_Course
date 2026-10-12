@@ -5,6 +5,22 @@
 
 #include <vector>
 
+enum class MouseMode
+{
+    None,
+    Explode,    // impulsion répulsive, appliquée une fois
+    Attract     // attraction continue vers le curseur
+};
+
+// Action de la souris sur les particules, en coordonnées du monde.
+struct MouseForce
+{
+    MouseMode mode = MouseMode::None;
+    float2 pos = { 0.0f, 0.0f };
+    float strength = 0.0f;     // explosion : px/s ; attraction : px/s², au centre
+    float radius = kMouseRadius;
+};
+
 // Réglages d'un pas de simulation, fournis à chaque image.
 struct StepParams
 {
@@ -12,6 +28,7 @@ struct StepParams
     bool walls = true;         // rebond sur les bords du monde
     float restitution = kDefaultRestitution;   // murs : part de la vitesse conservée au rebond
     bool collisions = true;    // collisions entre particules
+    MouseForce mouse;
 };
 
 // Interface commune aux moteurs de calcul : processeur et carte graphique.

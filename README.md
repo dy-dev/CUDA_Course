@@ -80,7 +80,12 @@ Lancer `bench_cpu` puis `bench_gpu` depuis le même dossier : le second relit le
 | Bascule CPU / GPU, touche `G` | Change de moteur de calcul en cours de simulation (l'état des particules est transmis) |
 | Cases « Murs », « Collisions » | Rebond sur les bords, collisions entre particules |
 | Curseur « Restitution » | Part de la vitesse conservée au rebond sur un mur, de 0,5 à 1 (1 : rebond sans perte) |
+| Clic bref dans le monde | Explosion : impulsion répulsive autour du curseur |
+| Bouton maintenu dans le monde | Attraction continue vers le curseur |
+| Curseurs « Explosion », « Attraction » | Intensité des deux effets |
 | `Échap` | Quitter |
+
+Sur la carte, chaque particule choisit pour l'échange de vitesse sa voisine la plus proche parmi celles qui s'en rapprochent ; l'échange n'a lieu qu'entre partenaires mutuels. Les échanges se font ainsi par paires disjointes : l'énergie et la quantité de mouvement sont conservées, comme dans la boucle séquentielle du processeur.
 
 Le moteur CPU calcule les collisions entre toutes les paires : au-delà de 50 000 particules, un pas durerait plusieurs secondes ; il les ignore donc (le panneau le signale).
 
@@ -93,7 +98,8 @@ include/    en-têtes
   Params.h      constantes du monde (taille, rayon, pas de temps…)
   Particles.h   données des particules (structure de tableaux)
   Physics.h     calcul d'une particule, commun aux deux moteurs (__host__ __device__) :
-                déplacement, rebond sur les murs, contact entre deux particules
+                déplacement, rebond sur les murs, contact entre deux particules,
+                action de la souris
   Simulation.h  interface commune aux deux moteurs
   SimCpu.h      moteur processeur
   SimGpu.h      moteur carte graphique

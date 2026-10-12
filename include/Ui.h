@@ -12,6 +12,8 @@ struct UiState
     bool walls = true;             // rebond sur les bords du monde
     float restitution = 1.0f;      // murs : part de la vitesse conservée au rebond
     bool collisions = true;        // collisions entre particules
+    float explosion = 0.0f;        // intensité d'un clic bref, px/s
+    float attraction = 0.0f;       // intensité du bouton maintenu, px/s²
 
     // État interne des contrôles
     int pendingCount = 0;          // valeur en cours de réglage (curseur ou champ)
