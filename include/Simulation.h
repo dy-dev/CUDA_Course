@@ -72,6 +72,9 @@ public:
     // Libère les ressources du moteur.
     virtual void shutdown() = 0;
 
+    // Énergie cinétique moyenne ½|v|² par particule (px²/s²).
+    virtual float meanKineticEnergy() = 0;
+
     // Décomposition du dernier pas.
     virtual const StepTimings& timings() const = 0;
 

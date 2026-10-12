@@ -137,6 +137,27 @@ __global__ void exchangeVelocitiesKernel(const float2* d_pos, const float2* d_ve
     d_velOut[i] = v;
 }
 
+// Somme par bloc de l'énergie cinétique ½|v|², en mémoire partagée : chaque
+// bloc produit un seul nombre, son total.
+__global__ void kineticEnergyBlockSumKernel(const float2* d_vel, float* d_blockSums, int n)
+{
+    __shared__ float s_sum[kBlockSize];
+    const int tid = threadIdx.x;
+    const int i = blockIdx.x * blockDim.x + tid;
+
+    // ___TODO___ : ranger dans s_sum[tid] l'énergie cinétique de la particule i (0 au-delà du tableau), attendre tout le bloc, puis additionner par moitiés successives (barrière après chaque étape) ; le thread 0 écrit enfin le total du bloc dans d_blockSums
+}
+
+// Somme finale des totaux de blocs, par un seul bloc : chaque thread cumule
+// plusieurs valeurs, puis le bloc réduit ces cumuls en mémoire partagée.
+__global__ void sumKernel(const float* d_values, float* d_total, int n)
+{
+    __shared__ float s_sum[kBlockSize];
+    const int tid = threadIdx.x;
+
+    // ___TODO___ : cumuler dans s_sum[tid] les valeurs d'indices tid, tid + blockDim.x, tid + 2 × blockDim.x… ; puis même réduction en mémoire partagée que ci-dessus ; le thread 0 écrit le total dans d_total
+}
+
 void SimGpu::init(const Particles& state)
 {
     m_count = state.count();
@@ -148,6 +169,8 @@ void SimGpu::init(const Particles& state)
     CUDA_CHECK(cudaMalloc(&m_deviceOut.d_pos, bytes));
     CUDA_CHECK(cudaMalloc(&m_deviceOut.d_vel, bytes));
     CUDA_CHECK(cudaMalloc(&d_partner, m_count * sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&d_blockSums, gridFor(m_count, kBlockSize) * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_total, sizeof(float)));
     m_grid.init(m_count);
     m_cellIds.resize(m_count);
     CUDA_CHECK(cudaMemcpy(m_device.d_pos, state.pos.data(), bytes, cudaMemcpyHostToDevice));
@@ -220,6 +243,21 @@ void SimGpu::step(const StepParams& params)
     m_timings.copyMs = m_copyTimer.elapsedMs();
 }
 
+float SimGpu::meanKineticEnergy()
+{
+    const int blocks = gridFor(m_count, kBlockSize);
+    CUDA_CHECK(cudaMemset(d_total, 0, sizeof(float)));
+
+    kineticEnergyBlockSumKernel<<<blocks, kBlockSize>>>(m_device.d_vel, d_blockSums, m_count);
+    CUDA_CHECK_LAUNCH();
+    sumKernel<<<1, kBlockSize>>>(d_blockSums, d_total, blocks);
+    CUDA_CHECK_LAUNCH();
+
+    float total = 0.0f;
+    CUDA_CHECK(cudaMemcpy(&total, d_total, sizeof(float), cudaMemcpyDeviceToHost));
+    return m_count > 0 ? total / float(m_count) : 0.0f;
+}
+
 const std::vector<float2>& SimGpu::positions() const
 {
     return m_positions;
@@ -246,7 +284,10 @@ void SimGpu::shutdown()
     CUDA_CHECK(cudaFree(m_deviceOut.d_pos));
     CUDA_CHECK(cudaFree(m_deviceOut.d_vel));
     CUDA_CHECK(cudaFree(d_partner));
+    CUDA_CHECK(cudaFree(d_blockSums));
+    CUDA_CHECK(cudaFree(d_total));
     d_partner = nullptr;
+    d_blockSums = d_total = nullptr;
     m_grid.shutdown();
     m_cellIds.clear();
     m_hasCellIds = false;

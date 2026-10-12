@@ -14,6 +14,7 @@ public:
     const std::vector<float2>& positions() const override;
     void readState(Particles& state) override;
     void shutdown() override;
+    float meanKineticEnergy() override;
 
     const StepTimings& timings() const override
     {
@@ -35,6 +36,8 @@ private:
     DeviceParticles m_device;      // état courant
     DeviceParticles m_deviceOut;   // sortie des collisions (double tampon)
     int* d_partner = nullptr;      // partenaire d'échange de vitesse de chaque particule
+    float* d_blockSums = nullptr;  // réduction : un total par bloc
+    float* d_total = nullptr;      // réduction : total final
     std::vector<float2> m_positions;
     SpatialGrid m_grid;
     std::vector<int> m_cellIds;

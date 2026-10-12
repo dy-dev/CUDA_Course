@@ -11,6 +11,7 @@ public:
     const std::vector<float2>& positions() const override;
     void readState(Particles& state) override;
     void shutdown() override;
+    float meanKineticEnergy() override;
 
     const StepTimings& timings() const override
     {

@@ -96,6 +96,10 @@ namespace
         {
             ui.colorByCell = !ui.colorByCell;
         }
+        if (IsKeyPressed(KEY_V))
+        {
+            ui.verifyRequested = true;
+        }
         if (IsKeyPressed(KEY_M))
         {
             ui.exportRequested = true;
@@ -180,6 +184,20 @@ namespace
         DrawCircleLinesV(center, force.radius, color);
     }
 
+    // Contrôle : énergie cinétique moyenne recalculée sur le processeur à partir de
+    // l'état complet du moteur actif. Cumul en double : c'est la valeur de référence.
+    float controlMeanKineticEnergy(Simulation& sim)
+    {
+        Particles state;
+        sim.readState(state);
+        double sum = 0.0;
+        for (const float2& v : state.vel)
+        {
+            sum += 0.5 * (double(v.x) * v.x + double(v.y) * v.y);
+        }
+        return state.count() > 0 ? float(sum / state.count()) : 0.0f;
+    }
+
     // Écrit l'historique des durées d'image dans le dossier courant.
     bool exportCsv(const FrameHistory& history, const char* engine, int count, const char* path)
     {
@@ -228,6 +246,8 @@ int main()
     float lastStepMs[2] = { -1.0f, -1.0f };
     int active = ui.useGpu ? 1 : 0;
 
+    float controlEnergy = -1.0f;
+    double controlUntil = 0.0;
     float directCollideMs = -1.0f;
     float gridCollideMs = -1.0f;
 
@@ -322,6 +342,14 @@ int main()
         stats.stepMs = lastStepMs[active];
         stats.otherStepMs = lastStepMs[1 - active];
         stats.cpuCollisionsSkipped = active == 0 && ui.collisions && initial.count() > kCpuCollisionLimit;
+        stats.energy = sim.meanKineticEnergy();
+        if (ui.verifyRequested)
+        {
+            controlEnergy = controlMeanKineticEnergy(sim);
+            controlUntil = GetTime() + 5.0;
+            ui.verifyRequested = false;
+        }
+        stats.controlEnergy = GetTime() < controlUntil ? controlEnergy : -1.0f;
         stats.directCollideMs = directCollideMs;
         stats.gridCollideMs = gridCollideMs;
         stats.history = &history;

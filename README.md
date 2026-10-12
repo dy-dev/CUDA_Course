@@ -82,6 +82,7 @@ Lancer `bench_cpu` puis `bench_gpu` depuis le même dossier : le second relit le
 | Curseur « Restitution » | Part de la vitesse conservée au rebond sur un mur, de 0,5 à 1 (1 : rebond sans perte) |
 | « Collisions sur la carte » : Directes / Grille | Toutes les paires, ou voisinage 3 × 3 d'une grille spatiale (moteur GPU) |
 | Case « Colorer par cellule », touche `C` | Couleur selon la cellule de la grille (moteur GPU, mode grille) |
+| Touche `V` | Recalcule sur le processeur l'énergie cinétique moyenne affichée, pour contrôle |
 | Clic bref dans le monde | Explosion : impulsion répulsive autour du curseur |
 | Bouton maintenu dans le monde | Attraction continue vers le curseur |
 | Clic droit maintenu dans le monde | Bonus : tourbillon autour du curseur (voir « Bonus : tourbillon ») |
@@ -91,7 +92,7 @@ Lancer `bench_cpu` puis `bench_gpu` depuis le même dossier : le second relit le
 
 Sur la carte, chaque particule choisit pour l'échange de vitesse sa voisine la plus proche parmi celles qui s'en rapprochent ; l'échange n'a lieu qu'entre partenaires mutuels. Les échanges se font ainsi par paires disjointes : l'énergie et la quantité de mouvement sont conservées, comme dans la boucle séquentielle du processeur.
 
-Le moteur CPU calcule les collisions entre toutes les paires : au-delà de 50 000 particules, un pas durerait plusieurs secondes ; il les ignore donc (le panneau le signale).
+La grille spatiale n'existe que sur la carte : le moteur CPU garde volontairement les collisions entre toutes les paires (O(N²)), pour garder le contraste entre les deux approches. Il calcule les collisions entre toutes les paires : au-delà de 50 000 particules, un pas durerait plusieurs secondes ; il les ignore donc (le panneau le signale).
 
 ## Mesurer et profiler
 

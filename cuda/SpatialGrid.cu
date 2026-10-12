@@ -33,8 +33,11 @@ __global__ void computeCellIdsKernel(const float2* d_pos, int* d_cellId, int* d_
         return;
     }
 
-    // ___TODO___ : ranger dans d_cellId[i] le numéro de la cellule qui contient la particule (coordonnées de cellule bornées avec cellCoord, puis numérotation ligne par ligne) et dans d_order[i] l'indice de la particule
-}
+    const float2 p = d_pos[i];
+    const int cx = cellCoord(p.x, kGridWidth);
+    const int cy = cellCoord(p.y, kGridHeight);
+    d_cellId[i] = cy * kGridWidth + cx;
+    d_order[i] = i;}
 
 // Déménagement : la particule rangée en position i après le tri est la
 // particule d'origine d_order[i]. Tous ses attributs suivent.
@@ -47,8 +50,9 @@ __global__ void reorderKernel(const int* d_order, const float2* d_pos, const flo
         return;
     }
 
-    // ___TODO___ : recopier en position i des tableaux triés la position et la vitesse de la particule d'origine d_order[i]
-}
+    const int source = d_order[i];
+    d_posSorted[i] = d_pos[source];
+    d_velSorted[i] = d_vel[source];}
 
 // Après le tri, les particules d'une même cellule sont contiguës : la plage
 // d'une cellule commence là où le numéro change et finit avant le suivant.
@@ -60,7 +64,15 @@ __global__ void findCellRangesKernel(const int* d_cellId, int* d_cellStart, int*
         return;
     }
 
-    // ___TODO___ : si la particule i est la première de sa cellule, noter i comme début de la cellule ; si elle en est la dernière, noter i + 1 comme fin
+    const int cell = d_cellId[i];
+    if (i == 0 || d_cellId[i - 1] != cell)
+    {
+        d_cellStart[cell] = i;
+    }
+    if (i == n - 1 || d_cellId[i + 1] != cell)
+    {
+        d_cellEnd[cell] = i + 1;
+    }
 }
 
 __global__ void collideGridKernel(const float2* d_pos, const float2* d_vel,
@@ -79,8 +91,28 @@ __global__ void collideGridKernel(const float2* d_pos, const float2* d_vel,
     int partner = -1;
     float partnerDist = 2.0f * kRadius;
 
-    // ___TODO___ : parcourir les 3 × 3 cellules autour de celle de la particule (en restant dans la grille, en sautant les cellules vides) et appeler accumulateContact pour chaque autre particule de leurs plages
-
+    const int cx = cellCoord(p.x, kGridWidth);
+    const int cy = cellCoord(p.y, kGridHeight);
+    for (int ny = max(cy - 1, 0); ny <= min(cy + 1, kGridHeight - 1); ++ny)
+    {
+        for (int nx = max(cx - 1, 0); nx <= min(cx + 1, kGridWidth - 1); ++nx)
+        {
+            const int cell = ny * kGridWidth + nx;
+            const int start = d_cellStart[cell];
+            if (start < 0)
+            {
+                continue;
+            }
+            const int end = d_cellEnd[cell];
+            for (int j = start; j < end; ++j)
+            {
+                if (j != i)
+                {
+                    accumulateContact(p, v, d_pos[j], d_vel[j], j, dp, partner, partnerDist);
+                }
+            }
+        }
+    }
     p.x += dp.x;
     p.y += dp.y;
     d_posOut[i] = p;
@@ -116,13 +148,15 @@ void SpatialGrid::build(DeviceParticles& particles, DeviceParticles& scratch, in
     computeCellIdsKernel<<<gridSize, kBlockSize>>>(particles.d_pos, d_cellId, d_order, count);
     CUDA_CHECK_LAUNCH();
 
-    // ___TODO___ : trier d_cellId sur la carte en emportant les étiquettes d_order (tri par clé de Thrust)
+    // Tri par clé : les numéros de cellule sont triés, les étiquettes suivent.
+    thrust::sort_by_key(thrust::device, d_cellId, d_cellId + count, d_order);
 
     reorderKernel<<<gridSize, kBlockSize>>>(d_order, particles.d_pos, particles.d_vel, scratch.d_pos, scratch.d_vel, count);
     CUDA_CHECK_LAUNCH();
-    // ___TODO___ : échanger particles et scratch, pour que l'état trié devienne l'état courant
+    std::swap(particles, scratch);
 
-    // ___TODO___ : marquer toutes les cellules comme vides (début à -1) avant de chercher les plages
+    // Toutes les cellules vides (octets 0xFF : -1), puis plages des cellules occupées.
+    CUDA_CHECK(cudaMemset(d_cellStart, 0xFF, kCellCount * sizeof(int)));
     findCellRangesKernel<<<gridSize, kBlockSize>>>(d_cellId, d_cellStart, d_cellEnd, count);
     CUDA_CHECK_LAUNCH();
 }

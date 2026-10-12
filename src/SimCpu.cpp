@@ -87,6 +87,18 @@ void SimCpu::step(const StepParams& params)
     m_timings.moveMs = timer.elapsedMs();
 }
 
+float SimCpu::meanKineticEnergy()
+{
+    const int n = m_particles.count();
+    float sum = 0.0f;
+    for (int i = 0; i < n; ++i)
+    {
+        const float2 v = m_particles.vel[i];
+        sum += 0.5f * (v.x * v.x + v.y * v.y);
+    }
+    return n > 0 ? sum / float(n) : 0.0f;
+}
+
 const std::vector<float2>& SimCpu::positions() const
 {
     return m_particles.pos;

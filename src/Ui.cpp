@@ -163,7 +163,6 @@ namespace
         {
             col.label(TextFormat("CPU : aucune au-delà de %dk", kCpuCollisionLimit / 1000));
         }
-        col.label("Collisions sur la carte :");
         col.toggleGroup("Directes;Grille", 2, &ui.collisionMode);
         col.checkBox("Colorer par cellule (C)", &ui.colorByCell);
     }
@@ -211,6 +210,13 @@ namespace
         {
             col.label("Grille : -");
         }
+
+        col.label(TextFormat("Ec moyenne %.3f (V)", stats.energy));
+        if (stats.controlEnergy >= 0.0f)
+        {
+            const float gap = stats.controlEnergy > 0.0f ? std::fabs(stats.energy - stats.controlEnergy) / stats.controlEnergy : 0.0f;
+            col.label(TextFormat("CPU %.3f, écart %.1e", stats.controlEnergy, gap));
+        }
     }
 
     // Durée des dernières images, avec la limite de 16,7 ms (60 images/s).
@@ -250,7 +256,7 @@ namespace
         col.pair(TextFormat("copie %.2f", last.step.copyMs), TextFormat("dessin %.2f", last.drawMs));
         col.pair(TextFormat("reste %.2f", restMs), TextFormat("image %.2f", last.frameMs));
 
-        drawFrameGraph(col.row(44.0f), *stats.history);
+        drawFrameGraph(col.row(36.0f), *stats.history);
         const char* buttonText = stats.message != nullptr ? stats.message : "Exporter CSV (M)";
         if (GuiButton(col.row(), buttonText))
         {
