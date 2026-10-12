@@ -80,6 +80,8 @@ Lancer `bench_cpu` puis `bench_gpu` depuis le même dossier : le second relit le
 | Bascule CPU / GPU, touche `G` | Change de moteur de calcul en cours de simulation (l'état des particules est transmis) |
 | Cases « Murs », « Collisions » | Rebond sur les bords, collisions entre particules |
 | Curseur « Restitution » | Part de la vitesse conservée au rebond sur un mur, de 0,5 à 1 (1 : rebond sans perte) |
+| « Collisions sur la carte » : Directes / Grille | Toutes les paires, ou voisinage 3 × 3 d'une grille spatiale (moteur GPU) |
+| Case « Colorer par cellule », touche `C` | Couleur selon la cellule de la grille (moteur GPU, mode grille) |
 | Clic bref dans le monde | Explosion : impulsion répulsive autour du curseur |
 | Bouton maintenu dans le monde | Attraction continue vers le curseur |
 | Clic droit maintenu dans le monde | Bonus : tourbillon autour du curseur (voir « Bonus : tourbillon ») |
@@ -90,6 +92,22 @@ Lancer `bench_cpu` puis `bench_gpu` depuis le même dossier : le second relit le
 Sur la carte, chaque particule choisit pour l'échange de vitesse sa voisine la plus proche parmi celles qui s'en rapprochent ; l'échange n'a lieu qu'entre partenaires mutuels. Les échanges se font ainsi par paires disjointes : l'énergie et la quantité de mouvement sont conservées, comme dans la boucle séquentielle du processeur.
 
 Le moteur CPU calcule les collisions entre toutes les paires : au-delà de 50 000 particules, un pas durerait plusieurs secondes ; il les ignore donc (le panneau le signale).
+
+## Mesurer et profiler
+
+Le panneau décompose la dernière image : étapes du pas (souris, collisions, déplacement, copie retour), préparation du dessin, et le reste (affichage, attente de la cadence de 60 images/s). Sur la carte, chaque étape est chronométrée par une paire d'événements CUDA ; sur le processeur, par l'horloge monotone. Le bouton « Exporter CSV » (ou `M`) écrit les 120 dernières images dans `frame_times.csv`.
+
+Pour aller plus loin sur une machine distante, sans interface graphique de profilage :
+
+```
+# Chronologie complète (kernels, copies, appels API), rapport ouvert ensuite en local avec Nsight Systems
+nsys profile -o particules --trace=cuda,osrt ./build/particles
+
+# Détail d'un kernel (occupation, accès mémoire), rapport ouvert en local avec Nsight Compute
+ncu --kernel-name collideAllPairsKernel --launch-count 5 -o collisions ./build/particles
+```
+
+Rapatrier ensuite `particules.nsys-rep` et `collisions.ncu-rep` (par `scp`) et les ouvrir dans Nsight Systems / Nsight Compute sur le poste local. Les kernels sont compilés avec `-lineinfo` : Nsight Compute relie les mesures aux lignes du source.
 
 ## Bonus : tourbillon
 
@@ -107,21 +125,23 @@ Obtenir un tourbillon stable reste une question ouverte.
 CMakeLists.txt
 bench/      mesures console
 include/    en-têtes
-  Params.h      constantes du monde (taille, rayon, pas de temps…)
-  Particles.h   données des particules (structure de tableaux)
-  Physics.h     calcul d'une particule, commun aux deux moteurs (__host__ __device__) :
-                déplacement, rebond sur les murs, contact entre deux particules,
-                action de la souris
-  Simulation.h  interface commune aux deux moteurs
-  SimCpu.h      moteur processeur
-  SimGpu.h      moteur carte graphique
-  CudaCheck.h   vérification des appels CUDA
-  Timing.h      chronomètres processeur et carte (événements CUDA)
-  Ui.h          panneau raygui
+  Params.h        constantes du monde (taille, rayon, pas de temps…)
+  Particles.h     données des particules (structure de tableaux)
+  Physics.h       calcul d'une particule, commun aux deux moteurs (__host__ __device__) :
+                  déplacement, rebond sur les murs, contact entre deux particules,
+                  action de la souris
+  Simulation.h    interface commune aux deux moteurs
+  SimCpu.h        moteur processeur
+  SimGpu.h        moteur carte graphique
+  SpatialGrid.h   grille spatiale (tri par cellule, voisinage 3 × 3)
+  CudaCheck.h     vérification des appels CUDA
+  Timing.h        chronomètres processeur et carte (événements CUDA)
+  Ui.h            panneau raygui
 src/        application (C++)
-  main.cpp      fenêtre, boucle, entrées
-  SimCpu.cpp    moteur processeur
-  Ui.cpp        panneau raygui (seul fichier qui compile l'implémentation de raygui)
+  main.cpp        fenêtre, boucle, entrées
+  SimCpu.cpp      moteur processeur
+  Ui.cpp          panneau raygui (seul fichier qui compile l'implémentation de raygui)
 cuda/       code CUDA (nvcc)
-  SimGpu.cu     moteur carte graphique
+  SimGpu.cu       moteur carte graphique
+  SpatialGrid.cu  grille spatiale (tri par cellule, voisinage 3 × 3)
 ```

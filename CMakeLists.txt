@@ -63,10 +63,11 @@ FetchContent_MakeAvailable(raylib raygui)
 # Options communes à nos cibles (pas aux dépendances).
 function(configure_target target)
     if(MSVC)
-        # Sources en UTF-8 (accents des commentaires et des textes affichés).
+        # Sources en UTF-8 (accents des commentaires et des textes affichés) et
+        # préprocesseur conforme, exigé par Thrust.
         target_compile_options(${target} PRIVATE
-            $<$<COMPILE_LANGUAGE:CXX>:/utf-8>
-            $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/utf-8>)
+            $<$<COMPILE_LANGUAGE:CXX>:/utf-8 /Zc:preprocessor>
+            $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/utf-8,/Zc:preprocessor>)
     endif()
     # Correspondance source / instructions pour les profileurs (sans coût à l'exécution).
     target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-lineinfo>)
@@ -92,6 +93,7 @@ if(CUDA_PROJECT_GPU)
     # Le code hôte qui fait référence au moteur GPU est compilé sous CUDA_PROJECT_GPU.
     target_sources(particles PRIVATE
         cuda/SimGpu.cu
+        cuda/SpatialGrid.cu
     )
     target_compile_definitions(particles PRIVATE CUDA_PROJECT_GPU)
     target_link_libraries(particles PRIVATE CUDA::cudart_static)

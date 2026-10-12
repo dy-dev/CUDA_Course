@@ -17,6 +17,8 @@ struct UiState
     float explosion = 0.0f;        // intensité d'un clic bref, px/s
     float attraction = 0.0f;       // intensité du bouton maintenu, px/s²
     bool exportRequested = false;  // écrire l'historique des durées dans un fichier CSV
+    int collisionMode = 0;         // carte : 0 toutes les paires, 1 grille spatiale
+    bool colorByCell = false;      // couleur selon la cellule de la grille
 
     // État interne des contrôles
     int pendingCount = 0;          // valeur en cours de réglage (curseur ou champ)
@@ -75,6 +77,8 @@ struct UiStats
     float stepMs = -1.0f;          // dernier pas du moteur actif
     float otherStepMs = -1.0f;     // dernière mesure de l'autre moteur
     bool cpuCollisionsSkipped = false; // trop de particules pour les collisions sur le processeur
+    float directCollideMs = -1.0f; // carte : dernières collisions toutes paires
+    float gridCollideMs = -1.0f;   // carte : dernières collisions par la grille (construction comprise)
     const FrameHistory* history = nullptr;
     const char* message = nullptr; // information ponctuelle (export réussi…)
 };

@@ -19,6 +19,16 @@ namespace
     const Color kBackground = { 18, 18, 24, 255 };
     const Color kParticleColor = { 120, 200, 255, 255 };
 
+    // Une couleur selon la parité des coordonnées de cellule : damier de 2 × 2.
+    const Color kCellColors[4] = { { 120, 200, 255, 255 }, { 255, 170, 80, 255 }, { 140, 230, 120, 255 }, { 240, 110, 160, 255 } };
+
+    Color cellColor(int cell)
+    {
+        const int cx = cell % kGridWidth;
+        const int cy = cell / kGridWidth;
+        return kCellColors[(cx & 1) + 2 * (cy & 1)];
+    }
+
     // Positions uniformes dans le monde, vitesses uniformes dans [-v, v].
     void initParticles(Particles& particles, int count)
     {
@@ -48,16 +58,18 @@ namespace
         return texture;
     }
 
-    void drawParticles(const std::vector<float2>& positions, Texture2D disc)
+    void drawParticles(const std::vector<float2>& positions, const std::vector<int>* cellIds, Texture2D disc)
     {
         BeginScissorMode(kPanelWidth, 0, kWindowWidth - kPanelWidth, kWindowHeight);
 
         const Rectangle source = { 0.0f, 0.0f, float(disc.width), float(disc.height) };
         const float size = 2.0f * kRadius;
-        for (const float2& p : positions)
+        for (std::size_t i = 0; i < positions.size(); ++i)
         {
+            const float2 p = positions[i];
             const Rectangle dest = { p.x + float(kPanelWidth) - kRadius, p.y - kRadius, size, size };
-            DrawTexturePro(disc, source, dest, { 0.0f, 0.0f }, 0.0f, kParticleColor);
+            const Color color = cellIds != nullptr ? cellColor((*cellIds)[i]) : kParticleColor;
+            DrawTexturePro(disc, source, dest, { 0.0f, 0.0f }, 0.0f, color);
         }
 
         EndScissorMode();
@@ -79,6 +91,10 @@ namespace
         if (IsKeyPressed(KEY_G) && ui.gpuAvailable)
         {
             ui.useGpu = !ui.useGpu;
+        }
+        if (IsKeyPressed(KEY_C))
+        {
+            ui.colorByCell = !ui.colorByCell;
         }
         if (IsKeyPressed(KEY_M))
         {
@@ -212,6 +228,9 @@ int main()
     float lastStepMs[2] = { -1.0f, -1.0f };
     int active = ui.useGpu ? 1 : 0;
 
+    float directCollideMs = -1.0f;
+    float gridCollideMs = -1.0f;
+
     FrameHistory history;
     FrameRecord current;
     const char* message = nullptr;
@@ -257,6 +276,7 @@ int main()
                 }
             }
             lastStepMs[0] = lastStepMs[1] = -1.0f;
+            directCollideMs = gridCollideMs = -1.0f;
             ui.resetRequested = false;
         }
 
@@ -273,11 +293,26 @@ int main()
         params.restitution = ui.restitution;
         params.collisions = ui.collisions;
         params.mouse = readMouse(mouseTracker, ui);
+        params.collisionMode = ui.collisionMode == 1 ? CollisionMode::Grid : CollisionMode::Direct;
+        params.needCellIds = ui.colorByCell;
         CpuTimer stepTimer;
         sim.step(params);
         lastStepMs[active] = stepTimer.elapsedMs();
         current.stepMs = lastStepMs[active];
         current.step = sim.timings();
+
+        // Dernières durées de collision de chaque méthode, sur la carte.
+        if (active == 1 && params.collisions)
+        {
+            if (params.collisionMode == CollisionMode::Direct)
+            {
+                directCollideMs = current.step.collideMs;
+            }
+            else
+            {
+                gridCollideMs = current.step.gridMs + current.step.collideMs;
+            }
+        }
 
         UiStats stats;
         stats.fps = GetFPS();
@@ -287,13 +322,15 @@ int main()
         stats.stepMs = lastStepMs[active];
         stats.otherStepMs = lastStepMs[1 - active];
         stats.cpuCollisionsSkipped = active == 0 && ui.collisions && initial.count() > kCpuCollisionLimit;
+        stats.directCollideMs = directCollideMs;
+        stats.gridCollideMs = gridCollideMs;
         stats.history = &history;
         stats.message = GetTime() < messageUntil ? message : nullptr;
 
         BeginDrawing();
         CpuTimer drawTimer;
         ClearBackground(kBackground);
-        drawParticles(sim.positions(), disc);
+        drawParticles(sim.positions(), ui.colorByCell ? sim.cellIds() : nullptr, disc);
         drawMouseForce(params.mouse);
         drawPanel(ui, stats);
         current.drawMs = drawTimer.elapsedMs();

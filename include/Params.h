@@ -34,5 +34,12 @@ constexpr float kClickMaxSeconds = 0.2f;
 // Au-delà, le moteur processeur ignore les collisions : un pas durerait plusieurs secondes.
 constexpr int kCpuCollisionLimit = 50000;
 
+// Grille spatiale : cellules carrées d'au moins un diamètre, pour que deux particules
+// en contact soient toujours dans la même cellule ou dans deux cellules voisines.
+constexpr float kCellSize = 2.0f * kRadius;
+constexpr int kGridWidth = int((kWorldWidth + kCellSize - 1.0f) / kCellSize);
+constexpr int kGridHeight = int((kWorldHeight + kCellSize - 1.0f) / kCellSize);
+constexpr int kCellCount = kGridWidth * kGridHeight;
+
 // Threads par bloc pour les kernels de la simulation.
 constexpr int kBlockSize = 256;

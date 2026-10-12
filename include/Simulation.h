@@ -22,6 +22,13 @@ struct MouseForce
     float radius = kMouseRadius;
 };
 
+// Recherche des collisions sur la carte.
+enum class CollisionMode
+{
+    Direct,     // toutes les paires
+    Grid        // voisinage 3 × 3 d'une grille spatiale
+};
+
 // Réglages d'un pas de simulation, fournis à chaque image.
 struct StepParams
 {
@@ -30,12 +37,15 @@ struct StepParams
     float restitution = kDefaultRestitution;   // murs : part de la vitesse conservée au rebond
     bool collisions = true;    // collisions entre particules
     MouseForce mouse;
+    CollisionMode collisionMode = CollisionMode::Direct;   // ignoré par le processeur
+    bool needCellIds = false;  // rapatrier aussi la cellule de chaque particule (coloration)
 };
 
 // Durées des étapes du dernier pas, en ms (0 : étape non exécutée).
 struct StepTimings
 {
     float mouseMs = 0.0f;
+    float gridMs = 0.0f;       // construction de la grille (carte, mode grille)
     float collideMs = 0.0f;
     float moveMs = 0.0f;
     float copyMs = 0.0f;       // copie retour des positions (carte seulement)
@@ -64,6 +74,12 @@ public:
 
     // Décomposition du dernier pas.
     virtual const StepTimings& timings() const = 0;
+
+    // Cellule de chaque particule, dans l'ordre de positions() ; nullptr si indisponible.
+    virtual const std::vector<int>* cellIds() const
+    {
+        return nullptr;
+    }
 
     // Nom court affiché dans le panneau.
     virtual const char* name() const = 0;

@@ -50,12 +50,12 @@ public:
 
     void start()
     {
-        // ___TODO___ : enregistrer l'événement de début dans le flux par défaut
+        CUDA_CHECK(cudaEventRecord(m_start));
     }
 
     void stop()
     {
-        // ___TODO___ : enregistrer l'événement de fin dans le flux par défaut
+        CUDA_CHECK(cudaEventRecord(m_stop));
         m_pending = true;
     }
 
@@ -69,7 +69,8 @@ public:
         m_pending = false;
 
         float ms = 0.0f;
-        // ___TODO___ : attendre que la carte ait atteint l'événement de fin, puis lire dans ms la durée écoulée depuis l'événement de début
+        CUDA_CHECK(cudaEventSynchronize(m_stop));
+        CUDA_CHECK(cudaEventElapsedTime(&ms, m_start, m_stop));
         return ms;
     }
 

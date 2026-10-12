@@ -148,6 +148,8 @@ void SimGpu::init(const Particles& state)
     CUDA_CHECK(cudaMalloc(&m_deviceOut.d_pos, bytes));
     CUDA_CHECK(cudaMalloc(&m_deviceOut.d_vel, bytes));
     CUDA_CHECK(cudaMalloc(&d_partner, m_count * sizeof(int)));
+    m_grid.init(m_count);
+    m_cellIds.resize(m_count);
     CUDA_CHECK(cudaMemcpy(m_device.d_pos, state.pos.data(), bytes, cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(m_device.d_vel, state.vel.data(), bytes, cudaMemcpyHostToDevice));
     m_positions = state.pos;
@@ -168,10 +170,23 @@ void SimGpu::step(const StepParams& params)
 
     if (params.collisions)
     {
-        m_collideTimer.start();
-        collideAllPairsKernel<<<gridSize, kBlockSize>>>(
-            m_device.d_pos, m_device.d_vel, m_deviceOut.d_pos, d_partner, m_count);
-        CUDA_CHECK_LAUNCH();
+        if (params.collisionMode == CollisionMode::Direct)
+        {
+            m_collideTimer.start();
+            collideAllPairsKernel<<<gridSize, kBlockSize>>>(
+                m_device.d_pos, m_device.d_vel, m_deviceOut.d_pos, d_partner, m_count);
+            CUDA_CHECK_LAUNCH();
+        }
+        else
+        {
+            // Tri par cellule : l'ordre des particules change à chaque pas.
+            m_gridTimer.start();
+            m_grid.build(m_device, m_deviceOut, m_count);
+            m_gridTimer.stop();
+
+            m_collideTimer.start();
+            m_grid.collide(m_device, m_deviceOut.d_pos, d_partner, m_count);
+        }
         exchangeVelocitiesKernel<<<gridSize, kBlockSize>>>(
             m_device.d_pos, m_device.d_vel, d_partner, m_deviceOut.d_vel, m_count);
         CUDA_CHECK_LAUNCH();
@@ -190,9 +205,16 @@ void SimGpu::step(const StepParams& params)
     // Copie retour des seules positions, pour le dessin.
     m_copyTimer.start();
     CUDA_CHECK(cudaMemcpy(m_positions.data(), m_device.d_pos, m_count * sizeof(float2), cudaMemcpyDeviceToHost));
+    // Cellules, pour la coloration : valables seulement si la grille vient d'être construite.
+    m_hasCellIds = params.needCellIds && params.collisions && params.collisionMode != CollisionMode::Direct;
+    if (m_hasCellIds)
+    {
+        CUDA_CHECK(cudaMemcpy(m_cellIds.data(), m_grid.cellIds(), m_count * sizeof(int), cudaMemcpyDeviceToHost));
+    }
     m_copyTimer.stop();
 
     m_timings.mouseMs = m_mouseTimer.elapsedMs();
+    m_timings.gridMs = m_gridTimer.elapsedMs();
     m_timings.collideMs = m_collideTimer.elapsedMs();
     m_timings.moveMs = m_moveTimer.elapsedMs();
     m_timings.copyMs = m_copyTimer.elapsedMs();
@@ -225,6 +247,9 @@ void SimGpu::shutdown()
     CUDA_CHECK(cudaFree(m_deviceOut.d_vel));
     CUDA_CHECK(cudaFree(d_partner));
     d_partner = nullptr;
+    m_grid.shutdown();
+    m_cellIds.clear();
+    m_hasCellIds = false;
     m_device = DeviceParticles();
     m_deviceOut = DeviceParticles();
     m_positions.clear();

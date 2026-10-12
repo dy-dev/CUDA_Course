@@ -102,3 +102,29 @@ HOST_DEVICE inline void applyMouseForce(float2 p, float2& v, const MouseForce& m
         v.y += dy * k;
     }
 }
+
+// Collisions sur la carte : contribution de la voisine j (position pj, vitesse
+// vj) à la particule (p, v). Le recul est cumulé dans dp ; le partenaire
+// d'échange de vitesse est la plus proche des voisines qui se rapprochent
+// (partnerDist : distance du partenaire retenu, 2 × kRadius au départ).
+HOST_DEVICE inline void accumulateContact(float2 p, float2 v, float2 pj, float2 vj, int j,
+                                          float2& dp, int& partner, float& partnerDist)
+{
+    float2 normal;
+    float dist;
+    if (!touching(p, pj, normal, dist))
+    {
+        return;
+    }
+
+    const float half = 0.5f * (2.0f * kRadius - dist);
+    dp.x -= normal.x * half;
+    dp.y -= normal.y * half;
+
+    const float vn = (vj.x - v.x) * normal.x + (vj.y - v.y) * normal.y;
+    if (vn < 0.0f && dist < partnerDist)
+    {
+        partner = j;
+        partnerDist = dist;
+    }
+}

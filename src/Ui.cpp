@@ -78,6 +78,26 @@ namespace
             box.width = box.height;
             GuiCheckBox(box, text, checked);
         }
+
+        // Deux cases à cocher sur une même ligne.
+        void checkBoxPair(const char* left, bool* leftChecked, const char* right, bool* rightChecked)
+        {
+            Rectangle box = row(kLabelHeight);
+            const float half = box.width / 2.0f;
+            box.width = box.height;
+            GuiCheckBox(box, left, leftChecked);
+            box.x += half;
+            GuiCheckBox(box, right, rightChecked);
+        }
+
+        // Groupe de boutons exclusifs répartis sur la largeur ("A;B;C").
+        void toggleGroup(const char* items, int count, int* active)
+        {
+            Rectangle bounds = row();
+            const float padding = float(GuiGetStyle(TOGGLE, GROUP_PADDING));
+            bounds.width = (bounds.width - padding * float(count - 1)) / float(count);
+            GuiToggleGroup(bounds, items, active);
+        }
     };
 
     int roundToThousand(float value)
@@ -118,15 +138,13 @@ namespace
     {
         col.section(ui.gpuAvailable ? "Moteur (touche G)" : "Moteur : GPU absent");
 
-        Rectangle bounds = col.row();
-        bounds.width = (bounds.width - float(GuiGetStyle(TOGGLE, GROUP_PADDING))) / 2.0f;
         int selected = ui.useGpu ? 1 : 0;
         // Sans moteur GPU, la bascule reste affichée mais inactive.
         if (!ui.gpuAvailable)
         {
             GuiDisable();
         }
-        GuiToggleGroup(bounds, "CPU;GPU", &selected);
+        col.toggleGroup("CPU;GPU", 2, &selected);
         GuiEnable();
         ui.useGpu = selected == 1;
     }
@@ -134,8 +152,7 @@ namespace
     void drawPhysicsControls(Column& col, UiState& ui, const UiStats& stats)
     {
         col.section("Physique");
-        col.checkBox("Murs", &ui.walls);
-        col.checkBox("Collisions", &ui.collisions);
+        col.checkBoxPair("Murs", &ui.walls, "Collisions", &ui.collisions);
         // Restitution : libellé dans la moitié gauche, curseur dans la moitié droite.
         Rectangle restitution = col.row(kLabelHeight);
         restitution.width /= 2.0f;
@@ -144,9 +161,11 @@ namespace
         GuiSlider(restitution, nullptr, nullptr, &ui.restitution, kMinRestitution, 1.0f);
         if (stats.cpuCollisionsSkipped)
         {
-            col.label("CPU : pas de collisions");
-            col.label(TextFormat("au-delà de %d", kCpuCollisionLimit));
+            col.label(TextFormat("CPU : aucune au-delà de %dk", kCpuCollisionLimit / 1000));
         }
+        col.label("Collisions sur la carte :");
+        col.toggleGroup("Directes;Grille", 2, &ui.collisionMode);
+        col.checkBox("Colorer par cellule (C)", &ui.colorByCell);
     }
 
     void drawMouseControls(Column& col, UiState& ui)
@@ -181,9 +200,17 @@ namespace
     {
         col.section("Mesures");
         col.label(TextFormat("FPS %d    N %d", stats.fps, stats.count));
-        col.label(TextFormat("Pas %s : %s", stats.engine, formatMs(stats.stepMs)));
-        col.label(TextFormat("Pas %s : %s", stats.otherEngine, formatMs(stats.otherStepMs)));
+        col.pair(TextFormat("%s %s", stats.engine, formatMs(stats.stepMs)),
+                 TextFormat("%s %s", stats.otherEngine, formatMs(stats.otherStepMs)));
         col.label(formatFactor(stats));
+        if (stats.directCollideMs > 0.0f && stats.gridCollideMs > 0.0f)
+        {
+            col.label(TextFormat("Grille : collisions %.1fx", speedup(stats.directCollideMs, stats.gridCollideMs)));
+        }
+        else
+        {
+            col.label("Grille : -");
+        }
     }
 
     // Durée des dernières images, avec la limite de 16,7 ms (60 images/s).
@@ -218,19 +245,16 @@ namespace
 
         const FrameRecord& last = stats.history->at(stats.history->size() - 1);
         const float restMs = last.frameMs - last.stepMs - last.drawMs;
-        col.pair(TextFormat("souris %.2f", last.step.mouseMs), TextFormat("collis. %.2f", last.step.collideMs));
-        col.pair(TextFormat("déplac. %.2f", last.step.moveMs), TextFormat("copie %.2f", last.step.copyMs));
-        col.pair(TextFormat("dessin %.2f", last.drawMs), TextFormat("reste %.2f", restMs));
-        col.label(TextFormat("image %.2f (pas %.2f)", last.frameMs, last.stepMs));
+        col.pair(TextFormat("souris %.2f", last.step.mouseMs), TextFormat("grille %.2f", last.step.gridMs));
+        col.pair(TextFormat("collis. %.2f", last.step.collideMs), TextFormat("déplac. %.2f", last.step.moveMs));
+        col.pair(TextFormat("copie %.2f", last.step.copyMs), TextFormat("dessin %.2f", last.drawMs));
+        col.pair(TextFormat("reste %.2f", restMs), TextFormat("image %.2f", last.frameMs));
 
-        drawFrameGraph(col.row(50.0f), *stats.history);
-        if (GuiButton(col.row(), "Exporter CSV (M)"))
+        drawFrameGraph(col.row(44.0f), *stats.history);
+        const char* buttonText = stats.message != nullptr ? stats.message : "Exporter CSV (M)";
+        if (GuiButton(col.row(), buttonText))
         {
             ui.exportRequested = true;
-        }
-        if (stats.message != nullptr)
-        {
-            col.label(stats.message);
         }
     }
 }
