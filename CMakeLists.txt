@@ -80,3 +80,6 @@ configure_target(particles)
 # ---------------------------------------------------------------------------
 add_executable(bench_cpu bench/BenchCpu.cpp)
 configure_target(bench_cpu)
+
+add_executable(bench_gpu bench/BenchGpu.cu)
+configure_target(bench_gpu)

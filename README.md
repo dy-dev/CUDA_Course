@@ -52,7 +52,10 @@ Une configuration qui échoue sur « No CMAKE_CUDA_COMPILER could be found » ou
 | Programme   | Rôle |
 |-------------|------|
 | `particles` | Application : fenêtre, panneau de commande, simulation |
-| `bench_cpu` | Mesure console du déplacement sur le processeur |
+| `bench_cpu` | Mesure console du déplacement sur le processeur, écrit `cpu_ms.csv` |
+| `bench_gpu` | Même mesure sur la carte graphique, comparée à `cpu_ms.csv` |
+
+Lancer `bench_cpu` puis `bench_gpu` depuis le même dossier : le second relit le fichier écrit par le premier.
 
 ## Commandes de l'application
 

@@ -9,6 +9,7 @@
 
 #include <chrono>
 #include <cstdio>
+#include <fstream>
 #include <random>
 #include <vector>
 
@@ -24,6 +25,7 @@ namespace
     constexpr int kSteps = 100;
     constexpr float kDt = 1.0f / 60.0f;
     constexpr float kFrameBudgetMs = 1000.0f / 60.0f;
+    constexpr const char* kCsvPath = "cpu_ms.csv";
 
     void initParticles(std::vector<Particle>& particles, int count)
     {
@@ -57,6 +59,9 @@ int main()
     SetConsoleOutputCP(CP_UTF8);
 #endif
 
+    std::ofstream csv(kCsvPath);
+    csv << "n,ms_per_step\n";
+
     std::printf("Déplacement CPU, %d pas par taille\n\n", kSteps);
     std::printf("%10s  %12s  %14s  %10s\n", "N", "ms par pas", "images/s max", "budget");
 
@@ -68,13 +73,13 @@ int main()
         // Pas à blanc : met les données en cache avant la mesure.
         moveParticles(particles, kDt);
 
-        // ___TODO___ : démarrer un chronomètre monotone juste avant la boucle de pas
+        const auto start = std::chrono::steady_clock::now();
         for (int step = 0; step < kSteps; ++step)
         {
             moveParticles(particles, kDt);
         }
-        // ___TODO___ : arrêter le chronomètre et en déduire la durée moyenne d'un pas, en millisecondes
-        double msPerStep = 0.0;
+        const auto stop = std::chrono::steady_clock::now();
+        const double msPerStep = std::chrono::duration<double, std::milli>(stop - start).count() / kSteps;
 
         const double maxFps = msPerStep > 0.0 ? 1000.0 / msPerStep : 0.0;
         const bool withinBudget = msPerStep <= kFrameBudgetMs;
@@ -82,7 +87,10 @@ int main()
 
         // Affichage d'une valeur calculée : empêche le compilateur d'éliminer la boucle.
         std::printf("%10s  contrôle x[0] = %.3f\n", "", particles[0].x);
+
+        csv << n << ',' << msPerStep << '\n';
     }
 
+    std::printf("\nRésultats écrits dans %s\n", kCsvPath);
     return 0;
 }
