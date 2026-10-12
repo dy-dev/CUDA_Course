@@ -165,7 +165,33 @@ __global__ void collideTiledKernel(const float2* d_pos, const float2* d_vel,
                 }
                 const int neighborEnd = d_cellEnd[neighbor];
 
-                // ___TODO___ : parcourir les particules de la cellule voisine par tuiles de blockDim.x : chaque thread charge une particule de la tuile (s'il en reste) dans s_pos et s_vel, barrière, puis les threads actifs appellent accumulateContact pour chaque particule de la tuile autre que la leur, barrière avant la tuile suivante
+                for (int tile = neighborStart; tile < neighborEnd; tile += blockDim.x)
+                {
+                    const int tileCount = min(int(blockDim.x), neighborEnd - tile);
+
+                    // Chargement coopératif : chaque thread du bloc, actif ou non, charge
+                    // au plus une particule de la tuile.
+                    if (threadIdx.x < tileCount)
+                    {
+                        s_pos[threadIdx.x] = d_pos[tile + threadIdx.x];
+                        s_vel[threadIdx.x] = d_vel[tile + threadIdx.x];
+                    }
+                    // Tuile complète avant toute lecture.
+                    __syncthreads();
+
+                    if (active)
+                    {
+                        for (int k = 0; k < tileCount; ++k)
+                        {
+                            if (tile + k != i)
+                            {
+                                accumulateContact(p, v, s_pos[k], s_vel[k], tile + k, dp, partner, partnerDist);
+                            }
+                        }
+                    }
+                    // Lectures terminées avant que la tuile suivante n'écrase la mémoire partagée.
+                    __syncthreads();
+                }
             }
         }
 

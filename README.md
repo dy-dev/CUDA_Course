@@ -111,6 +111,23 @@ ncu --kernel-name collideAllPairsKernel --launch-count 5 -o collisions ./build/p
 
 Rapatrier ensuite `particules.nsys-rep` et `collisions.ncu-rep` (par `scp`) et les ouvrir dans Nsight Systems / Nsight Compute sur le poste local. Les kernels sont compilés avec `-lineinfo` : Nsight Compute relie les mesures aux lignes du source.
 
+## Collisions tuilées : mesures
+
+Recherche des voisines seule, moyenne sur 50 pas, build Release, monde de 1020 × 720 px, rayon 2 px, cellules de 4 px. Pour la grille, la construction (identique pour « Grille » et « Tuiles par cellule ») est donnée à part.
+
+| N | Directes | Directes tuilées | Facteur tuilées / directes | Grille (+ construction) | Tuiles par cellule (+ construction) |
+|---:|---:|---:|---:|---:|---:|
+| 50 000 | 6,39 ms | 6,05 ms | 1,06x | 0,036 ms (+ 0,21) | 0,25 ms (+ 0,14) |
+| 100 000 | 23,4 ms | 21,3 ms | 1,10x | 0,053 ms (+ 0,15) | 0,41 ms (+ 0,17) |
+| 200 000 | 81,3 ms | 72,1 ms | 1,13x | 0,14 ms (+ 0,59) | 0,65 ms (+ 0,62) |
+
+Mesures relevées sur RTX 3070 Ti Laptop, à refaire sur RTX 4080.
+
+- **Directes tuilées** : gain faible. Dans la version directe, tous les threads d'un bloc lisent la même particule au même moment ; le cache sert déjà ces lectures en diffusion, et la mémoire partagée n'économise que peu de trafic.
+- **Tuiles par cellule** : plus lentes que la grille seule. Avec des cellules d'un diamètre, une cellule contient en moyenne moins de 5 particules : la plupart des 32 threads de chaque bloc n'ont rien à calculer, et les quelque 46 000 blocs (un par cellule, vides compris) coûtent plus que les lectures économisées.
+
+Les quatre modes donnent les mêmes résultats : identiques entre « Directes » et « Directes tuilées », et à un ulp près sur les positions après un pas pour les modes à grille (ordre de sommation différent).
+
 ## Bonus : tourbillon
 
 Clic droit maintenu dans le monde : les particules proches du curseur se mettent à tourner autour de lui (cercle bleu). La force reprend le rayon d'action et l'intensité de l'attraction, décroissance comprise, mais sa direction est perpendiculaire au vecteur particule → curseur au lieu de le suivre : c'est l'accélération de l'attraction tournée d'un quart de tour.

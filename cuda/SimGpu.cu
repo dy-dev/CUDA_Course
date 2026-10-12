@@ -12,6 +12,12 @@ namespace
     // Le lancement est refusé ; seule la vérification d'erreurs le signale.
     constexpr bool kDemoBadLaunch = false;
 
+    // Démonstration : dans les collisions directes tuilées, barrière placée dans une
+    // branche que seuls les threads actifs prennent. Les tuiles du dernier bloc sont
+    // mal chargées et la barrière n'est pas atteinte par tout le bloc : comportement
+    // indéfini (collisions manquées ou fausses, voire blocage).
+    constexpr bool kDemoBarrierInBranch = false;
+
     // Nombre de blocs pour couvrir n éléments (arrondi supérieur).
     int gridFor(int n, int blockSize)
     {
@@ -130,8 +136,56 @@ __global__ void collideAllPairsTiledKernel(const float2* d_pos, const float2* d_
     int partner = -1;
     float partnerDist = 2.0f * kRadius;
 
-    // ___TODO___ : parcourir toutes les particules par tuiles de blockDim.x : chaque thread charge une particule de la tuile (s'il en reste) dans s_pos et s_vel, barrière, puis les threads actifs appellent accumulateContact pour chaque particule de la tuile autre que la leur, barrière avant la tuile suivante
+    for (int tile = 0; tile < n; tile += blockDim.x)
+    {
+        const int tileCount = min(int(blockDim.x), n - tile);
 
+        if (kDemoBarrierInBranch)
+        {
+            // Version fautive : seuls les threads actifs chargent et attendent.
+            if (active)
+            {
+                if (threadIdx.x < tileCount)
+                {
+                    s_pos[threadIdx.x] = d_pos[tile + threadIdx.x];
+                    s_vel[threadIdx.x] = d_vel[tile + threadIdx.x];
+                }
+                __syncthreads();
+                for (int k = 0; k < tileCount; ++k)
+                {
+                    if (tile + k != i)
+                    {
+                        accumulateContact(p, v, s_pos[k], s_vel[k], tile + k, dp, partner, partnerDist);
+                    }
+                }
+                __syncthreads();
+            }
+            continue;
+        }
+
+        // Chargement coopératif : chaque thread du bloc, actif ou non, charge au
+        // plus une particule de la tuile.
+        if (threadIdx.x < tileCount)
+        {
+            s_pos[threadIdx.x] = d_pos[tile + threadIdx.x];
+            s_vel[threadIdx.x] = d_vel[tile + threadIdx.x];
+        }
+        // Tuile complète avant toute lecture.
+        __syncthreads();
+
+        if (active)
+        {
+            for (int k = 0; k < tileCount; ++k)
+            {
+                if (tile + k != i)
+                {
+                    accumulateContact(p, v, s_pos[k], s_vel[k], tile + k, dp, partner, partnerDist);
+                }
+            }
+        }
+        // Lectures terminées avant que la tuile suivante n'écrase la mémoire partagée.
+        __syncthreads();
+    }
     if (active)
     {
         d_posOut[i] = make_float2(p.x + dp.x, p.y + dp.y);
