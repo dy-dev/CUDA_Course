@@ -53,6 +53,14 @@ namespace
         {
             GuiLabel(row(18.0f), text);
         }
+
+        // Case à cocher carrée, libellé à droite.
+        void checkBox(const char* text, bool* checked)
+        {
+            Rectangle box = row(18.0f);
+            box.width = box.height;
+            GuiCheckBox(box, text, checked);
+        }
     };
 
     int roundToThousand(float value)
@@ -108,6 +116,24 @@ namespace
         ui.useGpu = selected == 1;
     }
 
+    void drawPhysicsControls(Column& col, UiState& ui, const UiStats& stats)
+    {
+        col.section("Physique");
+        col.checkBox("Murs", &ui.walls);
+        col.checkBox("Collisions", &ui.collisions);
+        // Restitution : libellé dans la moitié gauche, curseur dans la moitié droite.
+        Rectangle restitution = col.row(18.0f);
+        restitution.width /= 2.0f;
+        GuiLabel(restitution, TextFormat("Restit. %.2f", ui.restitution));
+        restitution.x += restitution.width;
+        GuiSlider(restitution, nullptr, nullptr, &ui.restitution, kMinRestitution, 1.0f);
+        if (stats.cpuCollisionsSkipped)
+        {
+            col.label("CPU : pas de collisions");
+            col.label(TextFormat("au-delà de %d", kCpuCollisionLimit));
+        }
+    }
+
     const char* formatMs(float ms)
     {
         return ms < 0.0f ? "-" : TextFormat("%.3f ms", ms);
@@ -157,6 +183,7 @@ void drawPanel(UiState& ui, const UiStats& stats)
     Column col;
     drawCountControls(col, ui);
     drawEngineControls(col, ui);
+    drawPhysicsControls(col, ui, stats);
     drawStats(col, stats);
 }
 

@@ -77,8 +77,12 @@ Lancer `bench_cpu` puis `bench_gpu` depuis le même dossier : le second relit le
 | Curseur ou champ « Particules » | Nombre de particules (1 000 à 200 000), appliqué au relâchement ou en fin de saisie |
 | Touches `1` à `5` | 1 000 / 10 000 / 50 000 / 100 000 / 200 000 particules |
 | Bouton « Réinitialiser » | Repart de l'état initial (graine fixe) |
-| Bascule CPU / GPU, touche `G` | Change de moteur de calcul en cours de simulation |
+| Bascule CPU / GPU, touche `G` | Change de moteur de calcul en cours de simulation (l'état des particules est transmis) |
+| Cases « Murs », « Collisions » | Rebond sur les bords, collisions entre particules |
+| Curseur « Restitution » | Part de la vitesse conservée au rebond sur un mur, de 0,5 à 1 (1 : rebond sans perte) |
 | `Échap` | Quitter |
+
+Le moteur CPU calcule les collisions entre toutes les paires : au-delà de 50 000 particules, un pas durerait plusieurs secondes ; il les ignore donc (le panneau le signale).
 
 ## Organisation
 
@@ -88,7 +92,8 @@ bench/      mesures console
 include/    en-têtes
   Params.h      constantes du monde (taille, rayon, pas de temps…)
   Particles.h   données des particules (structure de tableaux)
-  Physics.h     calcul d'une particule, commun aux deux moteurs (__host__ __device__)
+  Physics.h     calcul d'une particule, commun aux deux moteurs (__host__ __device__) :
+                déplacement, rebond sur les murs, contact entre deux particules
   Simulation.h  interface commune aux deux moteurs
   SimCpu.h      moteur processeur
   SimGpu.h      moteur carte graphique

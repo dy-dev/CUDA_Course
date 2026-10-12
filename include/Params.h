@@ -20,5 +20,12 @@ constexpr int kMaxCount = 200000;
 constexpr int kDefaultCount = 10000;
 constexpr int kPresetCounts[5] = { 1000, 10000, 50000, 100000, 200000 };
 
+// Coefficient de restitution des murs : 1, rebond sans perte ; 0,5 au minimum.
+constexpr float kMinRestitution = 0.5f;
+constexpr float kDefaultRestitution = 1.0f;
+
+// Au-delà, le moteur processeur ignore les collisions : un pas durerait plusieurs secondes.
+constexpr int kCpuCollisionLimit = 50000;
+
 // Threads par bloc pour les kernels de la simulation.
 constexpr int kBlockSize = 256;

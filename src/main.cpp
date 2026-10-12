@@ -84,7 +84,10 @@ namespace
     // Passe d'un moteur à l'autre en conservant l'état des particules.
     void switchEngine(Simulation& from, Simulation& to)
     {
-        // ___TODO___ : lire l'état complet du moteur actif, puis réinitialiser l'autre moteur avec cet état
+        Particles state;
+        from.readState(state);
+        to.shutdown();
+        to.init(state);
     }
 
     float elapsedMs(std::chrono::steady_clock::time_point start)
@@ -102,6 +105,7 @@ int main()
 
     UiState ui;
     requestCount(ui, kDefaultCount);
+    ui.restitution = kDefaultRestitution;
 
     // Moteurs : 0 processeur, 1 carte graphique (absent s'il n'est pas construit).
     SimCpu cpu;
@@ -153,6 +157,9 @@ int main()
         Simulation& sim = *engines[active];
 
         StepParams params;
+        params.walls = ui.walls;
+        params.restitution = ui.restitution;
+        params.collisions = ui.collisions;
         const auto stepStart = std::chrono::steady_clock::now();
         sim.step(params);
         lastStepMs[active] = elapsedMs(stepStart);
@@ -164,6 +171,7 @@ int main()
         stats.otherEngine = engines[1 - active] != nullptr ? engines[1 - active]->name() : "GPU";
         stats.stepMs = lastStepMs[active];
         stats.otherStepMs = lastStepMs[1 - active];
+        stats.cpuCollisionsSkipped = active == 0 && ui.collisions && initial.count() > kCpuCollisionLimit;
 #if defined(CUDA_PROJECT_GPU)
         if (active == 1)
         {

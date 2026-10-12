@@ -33,7 +33,9 @@ public:
 
 private:
     int m_count = 0;
-    DeviceParticles m_device;
+    DeviceParticles m_device;      // état courant
+    DeviceParticles m_deviceOut;   // sortie des collisions (double tampon)
+    int* d_partner = nullptr;      // partenaire d'échange de vitesse de chaque particule
     std::vector<float2> m_positions;
 
     cudaEvent_t m_start = nullptr;

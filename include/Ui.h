@@ -9,6 +9,9 @@ struct UiState
     bool resetRequested = false;
     bool useGpu = true;            // moteur actif : carte graphique ou processeur
     bool gpuAvailable = true;      // faux si le moteur GPU n'est pas construit
+    bool walls = true;             // rebond sur les bords du monde
+    float restitution = 1.0f;      // murs : part de la vitesse conservée au rebond
+    bool collisions = true;        // collisions entre particules
 
     // État interne des contrôles
     int pendingCount = 0;          // valeur en cours de réglage (curseur ou champ)
@@ -26,6 +29,7 @@ struct UiStats
     float otherStepMs = -1.0f;     // dernière mesure de l'autre moteur
     float computeMs = -1.0f;       // carte : calcul du dernier pas
     float copyMs = -1.0f;          // carte : copie retour des positions
+    bool cpuCollisionsSkipped = false; // trop de particules pour les collisions sur le processeur
 };
 
 // Applique le style du panneau (à appeler après InitWindow).

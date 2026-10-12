@@ -4,6 +4,8 @@
 #include "Params.h"
 #include "Physics.h"
 
+#include <utility>
+
 namespace
 {
     // Démonstration : blocs de 2048 threads, au-delà de la limite de la carte (1024).
@@ -17,8 +19,9 @@ namespace
     }
 }
 
-// Déplacement d'un pas de temps, par la fonction partagée avec le moteur CPU.
-__global__ void moveParticlesKernel(float2* d_pos, const float2* d_vel, int n, float dt)
+// Déplacement d'un pas de temps, puis rebond éventuel sur les murs, par les
+// fonctions partagées avec le moteur CPU.
+__global__ void moveParticlesKernel(float2* d_pos, float2* d_vel, int n, float dt, bool walls, float restitution)
 {
     const int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n)
@@ -27,8 +30,65 @@ __global__ void moveParticlesKernel(float2* d_pos, const float2* d_vel, int n, f
     }
 
     float2 p = d_pos[i];
-    advance(p, d_vel[i], dt);
+    float2 v = d_vel[i];
+    advance(p, v, dt);
+    if (walls)
+    {
+        bounce(p, v, restitution);
+    }
     d_pos[i] = p;
+    d_vel[i] = v;
+}
+
+// Collisions, toutes les paires. Chaque thread traite une particule et parcourt
+// toutes les autres. Il lit l'état d'entrée et n'écrit que dans les tableaux de
+// sortie (double tampon) : aucun thread n'écrit ce qu'un autre lit.
+// Il en sort la position séparée de ses voisines et le partenaire choisi pour
+// l'échange de vitesse : la voisine la plus proche parmi celles qui se rapprochent.
+__global__ void collideAllPairsKernel(const float2* d_pos, const float2* d_vel,
+                                      float2* d_posOut, int* d_partner, int n)
+{
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n)
+    {
+        return;
+    }
+
+    float2 p = d_pos[i];
+    const float2 v = d_vel[i];
+    int partner = -1;
+
+    // ___TODO___ : pour chaque autre particule en contact avec celle-ci (fonction partagée touching), cumuler un recul de la moitié du chevauchement le long de la normale de contact, et retenir comme partenaire la plus proche de celles qui se rapprochent ; appliquer le recul cumulé à p après la boucle
+
+    d_posOut[i] = p;
+    d_partner[i] = partner;
+}
+
+// Échange des composantes normales de vitesse entre partenaires mutuels (i a
+// choisi j et j a choisi i). Chaque particule échange avec une seule autre :
+// l'énergie et la quantité de mouvement sont conservées. Les contacts non
+// retenus seront traités aux pas suivants.
+__global__ void exchangeVelocitiesKernel(const float2* d_pos, const float2* d_vel,
+                                         const int* d_partner, float2* d_velOut, int n)
+{
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n)
+    {
+        return;
+    }
+
+    float2 v = d_vel[i];
+    const int j = d_partner[i];
+    float2 normal;
+    float dist;
+    if (j >= 0 && d_partner[j] == i && touching(d_pos[i], d_pos[j], normal, dist))
+    {
+        const float2 vj = d_vel[j];
+        const float vn = (vj.x - v.x) * normal.x + (vj.y - v.y) * normal.y;
+        v.x += vn * normal.x;
+        v.y += vn * normal.y;
+    }
+    d_velOut[i] = v;
 }
 
 void SimGpu::init(const Particles& state)
@@ -39,6 +99,9 @@ void SimGpu::init(const Particles& state)
     // Seule copie aller : les données restent ensuite sur la carte.
     CUDA_CHECK(cudaMalloc(&m_device.d_pos, bytes));
     CUDA_CHECK(cudaMalloc(&m_device.d_vel, bytes));
+    CUDA_CHECK(cudaMalloc(&m_deviceOut.d_pos, bytes));
+    CUDA_CHECK(cudaMalloc(&m_deviceOut.d_vel, bytes));
+    CUDA_CHECK(cudaMalloc(&d_partner, m_count * sizeof(int)));
     CUDA_CHECK(cudaMemcpy(m_device.d_pos, state.pos.data(), bytes, cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(m_device.d_vel, state.vel.data(), bytes, cudaMemcpyHostToDevice));
     m_positions = state.pos;
@@ -52,8 +115,22 @@ void SimGpu::step(const StepParams& params)
 {
     CUDA_CHECK(cudaEventRecord(m_start));
 
+    if (params.collisions)
+    {
+        const int gridSize = gridFor(m_count, kBlockSize);
+        collideAllPairsKernel<<<gridSize, kBlockSize>>>(
+            m_device.d_pos, m_device.d_vel, m_deviceOut.d_pos, d_partner, m_count);
+        CUDA_CHECK_LAUNCH();
+        exchangeVelocitiesKernel<<<gridSize, kBlockSize>>>(
+            m_device.d_pos, m_device.d_vel, d_partner, m_deviceOut.d_vel, m_count);
+        CUDA_CHECK_LAUNCH();
+        // Le résultat devient l'état courant ; l'ancien état servira de sortie au pas suivant.
+        std::swap(m_device, m_deviceOut);
+    }
+
     const int blockSize = kDemoBadLaunch ? 2048 : kBlockSize;
-    moveParticlesKernel<<<gridFor(m_count, blockSize), blockSize>>>(m_device.d_pos, m_device.d_vel, m_count, params.dt);
+    moveParticlesKernel<<<gridFor(m_count, blockSize), blockSize>>>(
+        m_device.d_pos, m_device.d_vel, m_count, params.dt, params.walls, params.restitution);
     CUDA_CHECK_LAUNCH();
     CUDA_CHECK(cudaEventRecord(m_afterCompute));
 
@@ -73,7 +150,11 @@ const std::vector<float2>& SimGpu::positions() const
 
 void SimGpu::readState(Particles& state)
 {
-    // ___TODO___ : dimensionner state puis y recopier les positions et les vitesses depuis la carte
+    const size_t bytes = m_count * sizeof(float2);
+    state.pos.resize(m_count);
+    state.vel.resize(m_count);
+    CUDA_CHECK(cudaMemcpy(state.pos.data(), m_device.d_pos, bytes, cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(state.vel.data(), m_device.d_vel, bytes, cudaMemcpyDeviceToHost));
 }
 
 void SimGpu::shutdown()
@@ -85,7 +166,12 @@ void SimGpu::shutdown()
 
     CUDA_CHECK(cudaFree(m_device.d_pos));
     CUDA_CHECK(cudaFree(m_device.d_vel));
+    CUDA_CHECK(cudaFree(m_deviceOut.d_pos));
+    CUDA_CHECK(cudaFree(m_deviceOut.d_vel));
+    CUDA_CHECK(cudaFree(d_partner));
+    d_partner = nullptr;
     m_device = DeviceParticles();
+    m_deviceOut = DeviceParticles();
     m_positions.clear();
 
     CUDA_CHECK(cudaEventDestroy(m_start));

@@ -9,6 +9,9 @@
 struct StepParams
 {
     float dt = kDt;
+    bool walls = true;         // rebond sur les bords du monde
+    float restitution = kDefaultRestitution;   // murs : part de la vitesse conservée au rebond
+    bool collisions = true;    // collisions entre particules
 };
 
 // Interface commune aux moteurs de calcul : processeur et carte graphique.
