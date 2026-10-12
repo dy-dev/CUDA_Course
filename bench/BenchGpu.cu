@@ -113,6 +113,92 @@ __global__ void moveParticlesKernel(Particle* d_particles, int n, float dt)
     d_particles[i].y += d_particles[i].vy * dt;
 }
 
+// Lecture de la seule coordonnée x, selon deux organisations des données.
+__global__ void readXAosKernel(const Particle* d_particles, float* d_out, int n)
+{
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < n)
+    {
+        d_out[i] = d_particles[i].x;
+    }
+}
+
+__global__ void readXSoaKernel(const float* d_x, float* d_out, int n)
+{
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < n)
+    {
+        d_out[i] = d_x[i];
+    }
+}
+
+namespace
+{
+    constexpr int kLayoutSizes[] = { 1000000, 10000000 };
+
+    // Durée moyenne d'un lancement, mesurée par événements CUDA.
+    template <typename Launch>
+    float timeKernel(Launch launch)
+    {
+        cudaEvent_t start;
+        cudaEvent_t stop;
+        cudaEventCreate(&start);
+        cudaEventCreate(&stop);
+
+        launch();   // pas à blanc
+        cudaEventRecord(start);
+        for (int step = 0; step < kSteps; ++step)
+        {
+            launch();
+        }
+        cudaEventRecord(stop);
+        cudaEventSynchronize(stop);
+
+        float ms = 0.0f;
+        cudaEventElapsedTime(&ms, start, stop);
+        cudaEventDestroy(start);
+        cudaEventDestroy(stop);
+        return ms / kSteps;
+    }
+
+    // Tableau de structures contre structure de tableaux : seul x est lu.
+    // En AoS, chaque lecture de 4 octets entraîne celle de toute la particule (16 octets).
+    void compareLayouts()
+    {
+        std::printf("\nLecture de x seul : tableau de structures (AoS) contre structure de tableaux (SoA)\n\n");
+        std::printf("%10s  %12s  %12s  %s\n", "N", "ms AoS", "ms SoA", "facteur SoA/AoS");
+
+        for (int n : kLayoutSizes)
+        {
+            std::vector<Particle> h_particles;
+            initParticles(h_particles, n);
+            std::vector<float> h_x(n);
+            for (int i = 0; i < n; ++i)
+            {
+                h_x[i] = h_particles[i].x;
+            }
+
+            Particle* d_particles = nullptr;
+            float* d_x = nullptr;
+            float* d_out = nullptr;
+            cudaMalloc(&d_particles, n * sizeof(Particle));
+            cudaMalloc(&d_x, n * sizeof(float));
+            cudaMalloc(&d_out, n * sizeof(float));
+            cudaMemcpy(d_particles, h_particles.data(), n * sizeof(Particle), cudaMemcpyHostToDevice);
+            cudaMemcpy(d_x, h_x.data(), n * sizeof(float), cudaMemcpyHostToDevice);
+
+            const int gridSize = (n + kBlockSize - 1) / kBlockSize;
+            const float aosMs = timeKernel([&] { readXAosKernel<<<gridSize, kBlockSize>>>(d_particles, d_out, n); });
+            const float soaMs = timeKernel([&] { readXSoaKernel<<<gridSize, kBlockSize>>>(d_x, d_out, n); });
+            std::printf("%10d  %12.4f  %12.4f  %.2fx\n", n, aosMs, soaMs, aosMs / soaMs);
+
+            cudaFree(d_particles);
+            cudaFree(d_x);
+            cudaFree(d_out);
+        }
+    }
+}
+
 int main()
 {
 #if defined(_WIN32)
@@ -187,5 +273,6 @@ int main()
         std::printf("\n");
     }
 
+    compareLayouts();
     return 0;
 }

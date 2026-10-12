@@ -2,8 +2,7 @@
 
 #include "CudaCheck.h"
 #include "Params.h"
-
-#include <cuda_runtime.h>
+#include "Physics.h"
 
 namespace
 {
@@ -11,11 +10,15 @@ namespace
     // Le lancement est refusé ; seule la vérification d'erreurs le signale.
     constexpr bool kDemoBadLaunch = false;
 
-    Particle* d_particles = nullptr;
-    int allocatedCount = 0;
+    // Nombre de blocs pour couvrir n éléments (arrondi supérieur).
+    int gridFor(int n, int blockSize)
+    {
+        return (n + blockSize - 1) / blockSize;
+    }
 }
 
-__global__ void moveParticlesKernel(Particle* d_particles, int n, float dt)
+// Déplacement d'un pas de temps, par la fonction partagée avec le moteur CPU.
+__global__ void moveParticlesKernel(float2* d_pos, const float2* d_vel, int n, float dt)
 {
     const int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n)
@@ -23,36 +26,70 @@ __global__ void moveParticlesKernel(Particle* d_particles, int n, float dt)
         return;
     }
 
-    d_particles[i].x += d_particles[i].vx * dt;
-    d_particles[i].y += d_particles[i].vy * dt;
+    float2 p = d_pos[i];
+    advance(p, d_vel[i], dt);
+    d_pos[i] = p;
 }
 
-void gpuInit(int count)
+void SimGpu::init(const Particles& state)
 {
-    CUDA_CHECK(cudaMalloc(&d_particles, count * sizeof(Particle)));
-    allocatedCount = count;
+    m_count = state.count();
+    const size_t bytes = m_count * sizeof(float2);
+
+    // Seule copie aller : les données restent ensuite sur la carte.
+    CUDA_CHECK(cudaMalloc(&m_device.d_pos, bytes));
+    CUDA_CHECK(cudaMalloc(&m_device.d_vel, bytes));
+    CUDA_CHECK(cudaMemcpy(m_device.d_pos, state.pos.data(), bytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(m_device.d_vel, state.vel.data(), bytes, cudaMemcpyHostToDevice));
+    m_positions = state.pos;
+
+    CUDA_CHECK(cudaEventCreate(&m_start));
+    CUDA_CHECK(cudaEventCreate(&m_afterCompute));
+    CUDA_CHECK(cudaEventCreate(&m_afterCopy));
 }
 
-void gpuStep(std::vector<Particle>& particles, float dt)
+void SimGpu::step(const StepParams& params)
 {
-    const int n = allocatedCount;
-    const size_t bytes = n * sizeof(Particle);
-
-    // Aller : tout le tableau, à chaque image.
-    CUDA_CHECK(cudaMemcpy(d_particles, particles.data(), bytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaEventRecord(m_start));
 
     const int blockSize = kDemoBadLaunch ? 2048 : kBlockSize;
-    const int gridSize = (n + blockSize - 1) / blockSize;
-    moveParticlesKernel<<<gridSize, blockSize>>>(d_particles, n, dt);
+    moveParticlesKernel<<<gridFor(m_count, blockSize), blockSize>>>(m_device.d_pos, m_device.d_vel, m_count, params.dt);
     CUDA_CHECK_LAUNCH();
+    CUDA_CHECK(cudaEventRecord(m_afterCompute));
 
-    // Retour : tout le tableau, pour le dessin.
-    CUDA_CHECK(cudaMemcpy(particles.data(), d_particles, bytes, cudaMemcpyDeviceToHost));
+    // Copie retour des seules positions, pour le dessin.
+    CUDA_CHECK(cudaMemcpy(m_positions.data(), m_device.d_pos, m_count * sizeof(float2), cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaEventRecord(m_afterCopy));
+
+    CUDA_CHECK(cudaEventSynchronize(m_afterCopy));
+    CUDA_CHECK(cudaEventElapsedTime(&m_computeMs, m_start, m_afterCompute));
+    CUDA_CHECK(cudaEventElapsedTime(&m_copyMs, m_afterCompute, m_afterCopy));
 }
 
-void gpuShutdown()
+const std::vector<float2>& SimGpu::positions() const
 {
-    CUDA_CHECK(cudaFree(d_particles));
-    d_particles = nullptr;
-    allocatedCount = 0;
+    return m_positions;
+}
+
+void SimGpu::readState(Particles& state)
+{
+    // ___TODO___ : dimensionner state puis y recopier les positions et les vitesses depuis la carte
+}
+
+void SimGpu::shutdown()
+{
+    if (m_count == 0)
+    {
+        return;
+    }
+
+    CUDA_CHECK(cudaFree(m_device.d_pos));
+    CUDA_CHECK(cudaFree(m_device.d_vel));
+    m_device = DeviceParticles();
+    m_positions.clear();
+
+    CUDA_CHECK(cudaEventDestroy(m_start));
+    CUDA_CHECK(cudaEventDestroy(m_afterCompute));
+    CUDA_CHECK(cudaEventDestroy(m_afterCopy));
+    m_count = 0;
 }

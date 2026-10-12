@@ -91,12 +91,56 @@ namespace
         col.label("1k, 10k, 50k, 100k, 200k");
     }
 
+    void drawEngineControls(Column& col, UiState& ui)
+    {
+        col.section(ui.gpuAvailable ? "Moteur (touche G)" : "Moteur : GPU absent");
+
+        Rectangle bounds = col.row();
+        bounds.width = (bounds.width - float(GuiGetStyle(TOGGLE, GROUP_PADDING))) / 2.0f;
+        int selected = ui.useGpu ? 1 : 0;
+        // Sans moteur GPU, la bascule reste affichée mais inactive.
+        if (!ui.gpuAvailable)
+        {
+            GuiDisable();
+        }
+        GuiToggleGroup(bounds, "CPU;GPU", &selected);
+        GuiEnable();
+        ui.useGpu = selected == 1;
+    }
+
+    const char* formatMs(float ms)
+    {
+        return ms < 0.0f ? "-" : TextFormat("%.3f ms", ms);
+    }
+
+    // Facteur de vitesse entre le moteur actif et la dernière mesure de l'autre.
+    const char* formatFactor(const UiStats& stats)
+    {
+        if (stats.stepMs <= 0.0f || stats.otherStepMs <= 0.0f)
+        {
+            return "-";
+        }
+        if (stats.stepMs <= stats.otherStepMs)
+        {
+            return TextFormat("%s %.1fx plus rapide", stats.engine, stats.otherStepMs / stats.stepMs);
+        }
+        return TextFormat("%s %.1fx plus rapide", stats.otherEngine, stats.stepMs / stats.otherStepMs);
+    }
+
     void drawStats(Column& col, const UiStats& stats)
     {
         col.section("Mesures");
         col.label(TextFormat("FPS : %d", stats.fps));
         col.label(TextFormat("N : %d", stats.count));
-        col.label(TextFormat("Calcul : %s", stats.engine));
+        col.label(TextFormat("Pas %s : %s", stats.engine, formatMs(stats.stepMs)));
+        col.label(TextFormat("Pas %s : %s", stats.otherEngine, formatMs(stats.otherStepMs)));
+        col.label(formatFactor(stats));
+
+        if (stats.computeMs >= 0.0f)
+        {
+            col.label(TextFormat("  calcul : %s", formatMs(stats.computeMs)));
+            col.label(TextFormat("  copie retour : %s", formatMs(stats.copyMs)));
+        }
     }
 }
 
@@ -112,6 +156,7 @@ void drawPanel(UiState& ui, const UiStats& stats)
 
     Column col;
     drawCountControls(col, ui);
+    drawEngineControls(col, ui);
     drawStats(col, stats);
 }
 

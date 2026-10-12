@@ -1,10 +1,15 @@
 #include "Params.h"
 #include "Particles.h"
-#include "SimGpu.h"
+#include "SimCpu.h"
+#include "Simulation.h"
 #include "Ui.h"
+#if defined(CUDA_PROJECT_GPU)
+#include "SimGpu.h"
+#endif
 
 #include "raylib.h"
 
+#include <chrono>
 #include <random>
 #include <vector>
 
@@ -14,30 +19,19 @@ namespace
     const Color kParticleColor = { 120, 200, 255, 255 };
 
     // Positions uniformes dans le monde, vitesses uniformes dans [-v, v].
-    void initParticles(std::vector<Particle>& particles, int count)
+    void initParticles(Particles& particles, int count)
     {
         std::mt19937 rng(kSeed);
         std::uniform_real_distribution<float> randomX(0.0f, kWorldWidth);
         std::uniform_real_distribution<float> randomY(0.0f, kWorldHeight);
         std::uniform_real_distribution<float> randomSpeed(-kInitialSpeed, kInitialSpeed);
 
-        particles.resize(count);
-        for (Particle& p : particles)
+        particles.pos.resize(count);
+        particles.vel.resize(count);
+        for (int i = 0; i < count; ++i)
         {
-            p.x = randomX(rng);
-            p.y = randomY(rng);
-            p.vx = randomSpeed(rng);
-            p.vy = randomSpeed(rng);
-        }
-    }
-
-    // Avance chaque particule d'un pas de temps : position += vitesse × dt.
-    void moveParticles(std::vector<Particle>& particles, float dt)
-    {
-        for (std::size_t i = 0; i < particles.size(); ++i)
-        {
-            particles[i].x += particles[i].vx * dt;
-            particles[i].y += particles[i].vy * dt;
+            particles.pos[i] = { randomX(rng), randomY(rng) };
+            particles.vel[i] = { randomSpeed(rng), randomSpeed(rng) };
         }
     }
 
@@ -53,13 +47,13 @@ namespace
         return texture;
     }
 
-    void drawParticles(const std::vector<Particle>& particles, Texture2D disc)
+    void drawParticles(const std::vector<float2>& positions, Texture2D disc)
     {
         BeginScissorMode(kPanelWidth, 0, kWindowWidth - kPanelWidth, kWindowHeight);
 
         const Rectangle source = { 0.0f, 0.0f, float(disc.width), float(disc.height) };
         const float size = 2.0f * kRadius;
-        for (const Particle& p : particles)
+        for (const float2& p : positions)
         {
             const Rectangle dest = { p.x + float(kPanelWidth) - kRadius, p.y - kRadius, size, size };
             DrawTexturePro(disc, source, dest, { 0.0f, 0.0f }, 0.0f, kParticleColor);
@@ -81,6 +75,21 @@ namespace
                 requestCount(ui, kPresetCounts[k]);
             }
         }
+        if (IsKeyPressed(KEY_G) && ui.gpuAvailable)
+        {
+            ui.useGpu = !ui.useGpu;
+        }
+    }
+
+    // Passe d'un moteur à l'autre en conservant l'état des particules.
+    void switchEngine(Simulation& from, Simulation& to)
+    {
+        // ___TODO___ : lire l'état complet du moteur actif, puis réinitialiser l'autre moteur avec cet état
+    }
+
+    float elapsedMs(std::chrono::steady_clock::time_point start)
+    {
+        return std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - start).count();
     }
 }
 
@@ -94,46 +103,89 @@ int main()
     UiState ui;
     requestCount(ui, kDefaultCount);
 
-    // Calcul confié à la carte graphique ; faux pour revenir à la boucle processeur.
-    bool useGpu = true;
+    // Moteurs : 0 processeur, 1 carte graphique (absent s'il n'est pas construit).
+    SimCpu cpu;
+#if defined(CUDA_PROJECT_GPU)
+    SimGpu gpu;
+    Simulation* engines[2] = { &cpu, &gpu };
+#else
+    Simulation* engines[2] = { &cpu, nullptr };
+    ui.gpuAvailable = false;
+    ui.useGpu = false;
+#endif
+    float lastStepMs[2] = { -1.0f, -1.0f };
+    int active = ui.useGpu ? 1 : 0;
 
-    std::vector<Particle> particles;
-    initParticles(particles, ui.count);
-    gpuInit(ui.count);
+    Particles initial;
+    initParticles(initial, ui.count);
+    for (Simulation* engine : engines)
+    {
+        if (engine != nullptr)
+        {
+            engine->init(initial);
+        }
+    }
 
     while (!WindowShouldClose())
     {
         handleShortcuts(ui);
-        if (ui.resetRequested || ui.count != int(particles.size()))
+        if (ui.resetRequested || ui.count != initial.count())
         {
-            initParticles(particles, ui.count);
-            gpuShutdown();
-            gpuInit(ui.count);
+            initParticles(initial, ui.count);
+            for (Simulation* engine : engines)
+            {
+                if (engine != nullptr)
+                {
+                    engine->shutdown();
+                    engine->init(initial);
+                }
+            }
+            lastStepMs[0] = lastStepMs[1] = -1.0f;
             ui.resetRequested = false;
         }
 
-        if (useGpu)
+        const int wanted = ui.useGpu ? 1 : 0;
+        if (wanted != active)
         {
-            gpuStep(particles, kDt);
+            switchEngine(*engines[active], *engines[wanted]);
+            active = wanted;
         }
-        else
-        {
-            moveParticles(particles, kDt);
-        }
+        Simulation& sim = *engines[active];
+
+        StepParams params;
+        const auto stepStart = std::chrono::steady_clock::now();
+        sim.step(params);
+        lastStepMs[active] = elapsedMs(stepStart);
 
         UiStats stats;
         stats.fps = GetFPS();
-        stats.count = int(particles.size());
-        stats.engine = useGpu ? "GPU" : "CPU";
+        stats.count = initial.count();
+        stats.engine = sim.name();
+        stats.otherEngine = engines[1 - active] != nullptr ? engines[1 - active]->name() : "GPU";
+        stats.stepMs = lastStepMs[active];
+        stats.otherStepMs = lastStepMs[1 - active];
+#if defined(CUDA_PROJECT_GPU)
+        if (active == 1)
+        {
+            stats.computeMs = gpu.computeMs();
+            stats.copyMs = gpu.copyMs();
+        }
+#endif
 
         BeginDrawing();
         ClearBackground(kBackground);
-        drawParticles(particles, disc);
+        drawParticles(sim.positions(), disc);
         drawPanel(ui, stats);
         EndDrawing();
     }
 
-    gpuShutdown();
+    for (Simulation* engine : engines)
+    {
+        if (engine != nullptr)
+        {
+            engine->shutdown();
+        }
+    }
     UnloadTexture(disc);
     CloseWindow();
     return 0;
