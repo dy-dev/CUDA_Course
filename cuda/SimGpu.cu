@@ -1,11 +1,16 @@
 #include "SimGpu.h"
 
+#include "CudaCheck.h"
 #include "Params.h"
 
 #include <cuda_runtime.h>
 
 namespace
 {
+    // Démonstration : blocs de 2048 threads, au-delà de la limite de la carte (1024).
+    // Le lancement est refusé ; seule la vérification d'erreurs le signale.
+    constexpr bool kDemoBadLaunch = false;
+
     Particle* d_particles = nullptr;
     int allocatedCount = 0;
 }
@@ -24,17 +29,30 @@ __global__ void moveParticlesKernel(Particle* d_particles, int n, float dt)
 
 void gpuInit(int count)
 {
-    // ___TODO___ : réserver sur la carte un tableau de count particules et retenir sa taille
+    CUDA_CHECK(cudaMalloc(&d_particles, count * sizeof(Particle)));
+    allocatedCount = count;
 }
 
 void gpuStep(std::vector<Particle>& particles, float dt)
 {
-    // ___TODO___ : copier les particules du processeur vers la carte
-    // ___TODO___ : lancer moveParticlesKernel avec assez de blocs de kBlockSize threads pour couvrir toutes les particules
-    // ___TODO___ : recopier les particules mises à jour de la carte vers le processeur
+    const int n = allocatedCount;
+    const size_t bytes = n * sizeof(Particle);
+
+    // Aller : tout le tableau, à chaque image.
+    CUDA_CHECK(cudaMemcpy(d_particles, particles.data(), bytes, cudaMemcpyHostToDevice));
+
+    const int blockSize = kDemoBadLaunch ? 2048 : kBlockSize;
+    const int gridSize = (n + blockSize - 1) / blockSize;
+    moveParticlesKernel<<<gridSize, blockSize>>>(d_particles, n, dt);
+    CUDA_CHECK_LAUNCH();
+
+    // Retour : tout le tableau, pour le dessin.
+    CUDA_CHECK(cudaMemcpy(particles.data(), d_particles, bytes, cudaMemcpyDeviceToHost));
 }
 
 void gpuShutdown()
 {
-    // ___TODO___ : libérer le tableau réservé sur la carte
+    CUDA_CHECK(cudaFree(d_particles));
+    d_particles = nullptr;
+    allocatedCount = 0;
 }

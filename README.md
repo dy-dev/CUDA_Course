@@ -75,6 +75,7 @@ include/    en-têtes
   Params.h     constantes du monde (taille, rayon, pas de temps…)
   Particles.h  données des particules
   SimGpu.h     calcul sur la carte graphique
+  CudaCheck.h  vérification des appels CUDA
   Ui.h         panneau raygui
 src/        application (C++)
   main.cpp     fenêtre, boucle, entrées
