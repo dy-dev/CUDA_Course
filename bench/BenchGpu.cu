@@ -78,6 +78,7 @@ namespace
         return times;
     }
 
+
     // En dessous, la durée mesurée n'est que le coût de la boucle : pas de facteur.
     constexpr double kMinMeasurableMs = 1e-4;
 
@@ -100,10 +101,13 @@ namespace
 
 __global__ void moveParticlesKernel(Particle* d_particles, int n, float dt)
 {
-    // ___TODO___ : calculer l'indice global du thread à partir de son bloc et de sa place dans le bloc
-    int i = 0;
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
 
-    // ___TODO___ : ne rien faire si l'indice dépasse le nombre de particules
+    // Le dernier bloc est en partie hors du tableau.
+    if (i >= n)
+    {
+        return;
+    }
 
     d_particles[i].x += d_particles[i].vx * dt;
     d_particles[i].y += d_particles[i].vy * dt;
@@ -126,7 +130,7 @@ int main()
     }
 
     std::printf("Déplacement GPU, %d pas par taille, blocs de %d threads\n\n", kSteps, kBlockSize);
-    std::printf("%10s  %8s  %12s  %12s  %12s  %s\n", "N", "blocs", "ms GPU", "ms CPU", "écart max", "facteur");
+    std::printf("%10s  %8s  %12s  %12s  %12s  %s\n", "N", "blocs", "ms GPU", "ms CPU", "écart rel.", "facteur");
 
     for (int n : kSizes)
     {
@@ -144,31 +148,37 @@ int main()
         cudaMalloc(&d_particles, n * sizeof(Particle));
         cudaMemcpy(d_particles, h_particles.data(), n * sizeof(Particle), cudaMemcpyHostToDevice);
 
-        // ___TODO___ : calculer le nombre de blocs nécessaire pour couvrir les n particules (arrondi supérieur)
-        int gridSize = 0;
+        // Arrondi supérieur : un bloc de plus si n n'est pas multiple de kBlockSize.
+        const int gridSize = (n + kBlockSize - 1) / kBlockSize;
 
         // Pas à blanc : le premier lancement paie le chargement du kernel.
-        // ___TODO___ : lancer moveParticlesKernel sur gridSize blocs de kBlockSize threads
+        moveParticlesKernel<<<gridSize, kBlockSize>>>(d_particles, n, kDt);
         cudaDeviceSynchronize();
 
         const auto start = std::chrono::steady_clock::now();
         for (int step = 0; step < kSteps; ++step)
         {
-            // ___TODO___ : lancer moveParticlesKernel sur gridSize blocs de kBlockSize threads
+            moveParticlesKernel<<<gridSize, kBlockSize>>>(d_particles, n, kDt);
         }
-        // ___TODO___ : attendre que la carte ait terminé avant d'arrêter le chronomètre
+        // Les lancements sont asynchrones : sans cette attente, on ne mesurerait que leur mise en file.
+        cudaDeviceSynchronize();
         const auto stop = std::chrono::steady_clock::now();
         const double gpuMs = std::chrono::duration<double, std::milli>(stop - start).count() / kSteps;
 
         cudaMemcpy(h_particles.data(), d_particles, n * sizeof(Particle), cudaMemcpyDeviceToHost);
         cudaFree(d_particles);
 
-        float maxError = 0.0f;
+        // Écart relatif : plus grand écart rapporté à la plus grande coordonnée. La carte
+        // fusionne multiplication et addition (FMA), ce qui change l'arrondi de chaque pas.
+        float maxDiff = 0.0f;
+        float maxCoord = 1.0f;
         for (int i = 0; i < n; ++i)
         {
-            maxError = std::max(maxError, std::fabs(h_particles[i].x - reference[i].x));
-            maxError = std::max(maxError, std::fabs(h_particles[i].y - reference[i].y));
+            maxDiff = std::max(maxDiff, std::fabs(h_particles[i].x - reference[i].x));
+            maxDiff = std::max(maxDiff, std::fabs(h_particles[i].y - reference[i].y));
+            maxCoord = std::max(maxCoord, std::max(std::fabs(reference[i].x), std::fabs(reference[i].y)));
         }
+        const float maxError = maxDiff / maxCoord;
 
         const auto cpu = cpuTimes.find(n);
         const double cpuMs = cpu != cpuTimes.end() ? cpu->second : 0.0;

@@ -74,8 +74,11 @@ bench/      mesures console
 include/    en-têtes
   Params.h     constantes du monde (taille, rayon, pas de temps…)
   Particles.h  données des particules
+  SimGpu.h     calcul sur la carte graphique
   Ui.h         panneau raygui
 src/        application (C++)
   main.cpp     fenêtre, boucle, entrées
   Ui.cpp       panneau raygui
+cuda/       code CUDA (nvcc)
+  SimGpu.cu    calcul sur la carte graphique
 ```

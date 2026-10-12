@@ -96,6 +96,7 @@ namespace
         col.section("Mesures");
         col.label(TextFormat("FPS : %d", stats.fps));
         col.label(TextFormat("N : %d", stats.count));
+        col.label(TextFormat("Calcul : %s", stats.engine));
     }
 }
 

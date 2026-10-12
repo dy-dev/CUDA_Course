@@ -18,6 +18,7 @@ struct UiStats
 {
     int fps = 0;
     int count = 0;
+    const char* engine = "";       // moteur de calcul actif
 };
 
 // Applique le style du panneau (à appeler après InitWindow).

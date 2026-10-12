@@ -63,6 +63,7 @@ endfunction()
 # ---------------------------------------------------------------------------
 add_executable(particles
     src/main.cpp
+    cuda/SimGpu.cu
     src/Ui.cpp
 )
 target_include_directories(particles PRIVATE

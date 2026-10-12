@@ -1,5 +1,6 @@
 #include "Params.h"
 #include "Particles.h"
+#include "SimGpu.h"
 #include "Ui.h"
 
 #include "raylib.h"
@@ -93,8 +94,12 @@ int main()
     UiState ui;
     requestCount(ui, kDefaultCount);
 
+    // Calcul confié à la carte graphique ; faux pour revenir à la boucle processeur.
+    bool useGpu = true;
+
     std::vector<Particle> particles;
     initParticles(particles, ui.count);
+    gpuInit(ui.count);
 
     while (!WindowShouldClose())
     {
@@ -102,14 +107,24 @@ int main()
         if (ui.resetRequested || ui.count != int(particles.size()))
         {
             initParticles(particles, ui.count);
+            gpuShutdown();
+            gpuInit(ui.count);
             ui.resetRequested = false;
         }
 
-        moveParticles(particles, kDt);
+        if (useGpu)
+        {
+            gpuStep(particles, kDt);
+        }
+        else
+        {
+            moveParticles(particles, kDt);
+        }
 
         UiStats stats;
         stats.fps = GetFPS();
         stats.count = int(particles.size());
+        stats.engine = useGpu ? "GPU" : "CPU";
 
         BeginDrawing();
         ClearBackground(kBackground);
@@ -118,6 +133,7 @@ int main()
         EndDrawing();
     }
 
+    gpuShutdown();
     UnloadTexture(disc);
     CloseWindow();
     return 0;

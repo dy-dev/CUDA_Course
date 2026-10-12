@@ -19,3 +19,6 @@ constexpr int kMinCount = 1000;
 constexpr int kMaxCount = 200000;
 constexpr int kDefaultCount = 10000;
 constexpr int kPresetCounts[5] = { 1000, 10000, 50000, 100000, 200000 };
+
+// Threads par bloc pour les kernels de la simulation.
+constexpr int kBlockSize = 256;
